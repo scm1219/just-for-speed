@@ -132,16 +132,17 @@ export class Vehicle {
     }
 
     // --- Engine force (rear wheels: index 2, 3) ---
+    // cannon-es with indexForwardAxis=2: negative force = forward (+Z local)
     let engineForce = 0;
     if (input.forward && speed < effectiveMaxSpeed) {
-      engineForce = this.config.acceleration * this.config.mass;
+      engineForce = -this.config.acceleration * this.config.mass;
       if (isBoosted) {
         engineForce *= this.config.boostMultiplier;
       }
     }
     const maxReverseSpeed = effectiveMaxSpeed * 0.3;
     if (input.backward && speed > -maxReverseSpeed) {
-      engineForce = -this.config.acceleration * this.config.mass * 0.15;
+      engineForce = this.config.acceleration * this.config.mass * 0.15;
     }
 
     this.raycastVehicle.applyEngineForce(engineForce, 2);
