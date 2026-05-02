@@ -1,0 +1,31 @@
+{
+  "name": "城市街道",
+  "id": "city",
+  "difficulty": "easy",
+  "totalLaps": 3,
+  "roadWidth": 12,
+  "splinePoints": [
+    [0, 0, 0],
+    [30, 0, -20],
+    [60, 0, -15],
+    [80, 0, -40],
+    [100, 0, -70],
+    [90, 0, -100],
+    [60, 0, -110],
+    [30, 0, -95],
+    [10, 0, -70],
+    [-10, 0, -40],
+    [-20, 0, -15]
+  ],
+  "startPosition": [0, 0.8, 5],
+  "startRotation": [0, 0, 0, 1],
+  "checkpoints": [0, 0.25, 0.5, 0.75, 1.0],
+  "itemBoxPositions": [0.1, 0.3, 0.5, 0.7, 0.9],
+  "environment": {
+    "groundColor": 3744898,
+    "roadColor": 4473924,
+    "skyTopColor": 1710618,
+    "skyBottomColor": 4868682,
+    "decorations": "buildings"
+  }
+}

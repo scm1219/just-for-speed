@@ -1,0 +1,33 @@
+{
+  "name": "海岸公路",
+  "id": "coast",
+  "difficulty": "normal",
+  "totalLaps": 3,
+  "roadWidth": 10,
+  "splinePoints": [
+    [0, 0, 0],
+    [20, 2, -30],
+    [50, 5, -50],
+    [80, 3, -45],
+    [110, 0, -60],
+    [130, -5, -90],
+    [120, -8, -120],
+    [90, -5, -140],
+    [60, -3, -130],
+    [40, 0, -110],
+    [10, 2, -80],
+    [-10, 1, -50],
+    [-15, 0, -25]
+  ],
+  "startPosition": [0, 0.8, 5],
+  "startRotation": [0, 0, 0, 1],
+  "checkpoints": [0, 0.25, 0.5, 0.75, 1.0],
+  "itemBoxPositions": [0.08, 0.25, 0.42, 0.58, 0.75, 0.92],
+  "environment": {
+    "groundColor": 12776512,
+    "roadColor": 5592405,
+    "skyTopColor": 30671,
+    "skyBottomColor": 8947851,
+    "decorations": "rocks"
+  }
+}

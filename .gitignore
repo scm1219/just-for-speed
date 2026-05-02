@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.superpowers/
+*.local
+.claude
+docs
+CLAUDE.MD

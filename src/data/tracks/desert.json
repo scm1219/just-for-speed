@@ -1,0 +1,32 @@
+{
+  "name": "沙漠峡谷",
+  "id": "desert",
+  "difficulty": "hard",
+  "totalLaps": 3,
+  "roadWidth": 8,
+  "splinePoints": [
+    [0, 0, 0],
+    [15, 1, -25],
+    [40, 3, -20],
+    [55, 2, -40],
+    [45, 5, -65],
+    [25, 4, -75],
+    [10, 6, -60],
+    [-5, 4, -40],
+    [-20, 3, -25],
+    [-25, 1, -10],
+    [-15, 0, 5],
+    [-5, 0, 8]
+  ],
+  "startPosition": [0, 0.8, 5],
+  "startRotation": [0, 0, 0, 1],
+  "checkpoints": [0, 0.25, 0.5, 0.75, 1.0],
+  "itemBoxPositions": [0.1, 0.3, 0.5, 0.7, 0.9],
+  "environment": {
+    "groundColor": 13945888,
+    "roadColor": 9139765,
+    "skyTopColor": 16733696,
+    "skyBottomColor": 16777024,
+    "decorations": "canyon"
+  }
+}
