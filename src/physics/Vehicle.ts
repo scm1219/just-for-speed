@@ -21,6 +21,9 @@ export const DEFAULT_VEHICLE_CONFIG: VehicleConfig = {
   boostMultiplier: 1.5,
 };
 
+const FLIP_THRESHOLD = -0.5;
+const FLIP_RESET_DELAY = 5;
+
 const WHEEL_RADIUS = 0.35;
 const SUSPENSION_STIFFNESS = 30;
 const SUSPENSION_REST_LENGTH = 0.4;
@@ -64,13 +67,14 @@ export class Vehicle {
   private isDrifting: boolean = false;
   private boostEndTime: number = 0;
   private speedReductionTimer: ReturnType<typeof setTimeout> | null = null;
+  private flipStartTime: number | null = null;
 
   constructor(config: VehicleConfig, world: CANNON.World) {
     this.config = { ...config };
     this.currentMaxSpeed = config.maxSpeed;
 
     // Create chassis body
-    const chassisShape = new CANNON.Box(new CANNON.Vec3(0.5, 0.25, 1)); // half-extents for 1x0.5x2
+    const chassisShape = new CANNON.Box(new CANNON.Vec3(0.5, 0.25, 1));
     this.chassisBody = new CANNON.Body({
       mass: config.mass,
       shape: chassisShape,
@@ -132,10 +136,10 @@ export class Vehicle {
     }
 
     // --- Engine force (rear wheels: index 2, 3) ---
-    // cannon-es with indexForwardAxis=2: negative force = forward (+Z local)
+    // cannon-es: negative force = forward (+Z local)
     let engineForce = 0;
     if (input.forward && speed < effectiveMaxSpeed) {
-      engineForce = -this.config.acceleration * this.config.mass;
+      engineForce = -this.config.acceleration * this.config.mass * 0.5;
       if (isBoosted) {
         engineForce *= this.config.boostMultiplier;
       }
@@ -207,6 +211,31 @@ export class Vehicle {
 
   getIsBoosted(): boolean {
     return performance.now() / 1000 < this.boostEndTime;
+  }
+
+  checkFlipState(): void {
+    const upLocal = new CANNON.Vec3(0, 1, 0);
+    const upWorld = new CANNON.Vec3();
+    this.chassisBody.quaternion.vmult(upLocal, upWorld);
+    const dot = upWorld.dot(new CANNON.Vec3(0, 1, 0));
+    const flipped = dot < FLIP_THRESHOLD;
+
+    if (flipped && this.flipStartTime === null) {
+      this.flipStartTime = performance.now() / 1000;
+    } else if (!flipped && this.flipStartTime !== null) {
+      this.flipStartTime = null;
+    }
+  }
+
+  getFlipStatus(): { flipped: boolean; elapsed: number } {
+    if (this.flipStartTime === null) {
+      return { flipped: false, elapsed: 0 };
+    }
+    return { flipped: true, elapsed: performance.now() / 1000 - this.flipStartTime };
+  }
+
+  clearFlipState(): void {
+    this.flipStartTime = null;
   }
 
   destroy(world: CANNON.World): void {

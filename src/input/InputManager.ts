@@ -49,6 +49,7 @@ export class InputManager {
       handbrake: kb.handbrake || handbrake,
       useItem: kb.useItem || useItem,
       pause: kb.pause || pause,
+      resetVehicle: kb.resetVehicle,
       steerX: Math.abs(steerX) > deadzone ? steerX : kb.steerX,
       accel: Math.max(kb.accel, accel),
       brake: Math.max(kb.brake, brake),
@@ -58,7 +59,7 @@ export class InputManager {
   private emptyState(): InputState {
     return {
       forward: false, backward: false, left: false, right: false,
-      handbrake: false, useItem: false, pause: false,
+      handbrake: false, useItem: false, pause: false, resetVehicle: false,
       steerX: 0, accel: 0, brake: 0,
     };
   }

@@ -68,7 +68,7 @@ export class AIDriver {
       forward: true, backward: false,
       left: steerValue < -0.1, right: steerValue > 0.1,
       handbrake: curvature > 1.0,
-      useItem: false, pause: false,
+      useItem: false, pause: false, resetVehicle: false,
       steerX: steerValue, accel: turnBrake, brake: 0,
     };
 

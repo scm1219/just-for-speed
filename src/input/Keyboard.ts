@@ -6,6 +6,7 @@ export interface InputState {
   handbrake: boolean;
   useItem: boolean;
   pause: boolean;
+  resetVehicle: boolean;
   steerX: number;
   accel: number;
   brake: number;
@@ -18,7 +19,7 @@ export class Keyboard {
   private static readonly GAME_KEYS = new Set([
     'KeyW', 'KeyA', 'KeyS', 'KeyD',
     'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-    'Space', 'ShiftLeft', 'ShiftRight', 'Escape',
+    'Space', 'ShiftLeft', 'ShiftRight', 'Escape', 'KeyR',
   ]);
 
   init(): void {
@@ -50,6 +51,7 @@ export class Keyboard {
       handbrake: this.keys.has('Space'),
       useItem: this.justPressed.has('ShiftLeft') || this.justPressed.has('ShiftRight'),
       pause: this.justPressed.has('Escape'),
+      resetVehicle: this.justPressed.has('KeyR'),
       steerX: (left ? -1 : 0) + (right ? 1 : 0),
       accel: forward ? 1 : 0,
       brake: backward ? 1 : 0,

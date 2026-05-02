@@ -330,6 +330,20 @@ function renderLoop(): void {
       resetPlayerToTrack(playerProgress);
     }
 
+    // Flip detection and auto-reset
+    playerVehicle.checkFlipState();
+    const flipStatus = playerVehicle.getFlipStatus();
+    if (flipStatus.flipped) {
+      const remaining = Math.ceil(5 - flipStatus.elapsed);
+      if (remaining > 0) {
+        hud.showNotification(`翻车！${remaining}秒后回正`);
+      }
+      if (flipStatus.elapsed >= 5 || currentInput.resetVehicle) {
+        resetPlayerToTrack(playerProgress);
+        playerVehicle.clearFlipState();
+      }
+    }
+
     // Update lap tracker
     lapTracker.update(now);
 
