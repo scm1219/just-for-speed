@@ -196,7 +196,10 @@ async function startRace(trackId: string, difficulty: Difficulty): Promise<void>
   // Create player vehicle at start position (derived from track curve)
   const startPoint = trackMesh.getPointAt(0);
   const startTangent = trackMesh.getTangentAt(0);
-  const startAngle = Math.atan2(startTangent.x, startTangent.z);
+  // Forward is local -Z (see Vehicle.ts), so yaw the chassis so its -Z axis
+  // points along the track tangent. atan2(tangent.x, tangent.z) alone aligns
+  // local +Z with the tangent; adding PI flips it to -Z.
+  const startAngle = Math.atan2(startTangent.x, startTangent.z) + Math.PI;
 
   playerVehicle = new Vehicle(DEFAULT_VEHICLE_CONFIG, physics.world);
   playerVehicle.chassisBody.position.set(
@@ -440,7 +443,8 @@ function resetPlayerToTrack(nearestT: number): void {
   if (!playerVehicle || !trackMesh || !hud) return;
   const point = trackMesh.getPointAt(nearestT);
   const tangent = trackMesh.getTangentAt(nearestT);
-  const angle = Math.atan2(tangent.x, tangent.z);
+  // Forward is local -Z; align chassis -Z with the tangent (see startRace).
+  const angle = Math.atan2(tangent.x, tangent.z) + Math.PI;
 
   playerVehicle.chassisBody.position.set(point.x, point.y + 0.8, point.z);
   playerVehicle.chassisBody.quaternion.setFromEuler(0, angle, 0);

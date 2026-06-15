@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import { Vec3, Quaternion } from 'cannon-es';
 
 // Third-person chase camera
-const OFFSET = new THREE.Vector3(0, 4, -10);
+// The car drives toward local -Z (see Vehicle.ts), so forward is -Z. The
+// camera sits behind the car (+Z) and looks ahead toward -Z.
+const OFFSET = new THREE.Vector3(0, 4, 10);
 const LOOK_AHEAD_DISTANCE = 15;
 const SMOOTH_FACTOR = 8;
 
@@ -28,8 +30,8 @@ export class Camera {
       chassisQuaternion.w,
     );
 
-    // Forward direction (cannon forward = +Z)
-    this.forwardDir.set(0, 0, 1).applyQuaternion(this.tmpQuaternion);
+    // Forward direction (cannon drives -Z in this project)
+    this.forwardDir.set(0, 0, -1).applyQuaternion(this.tmpQuaternion);
 
     // Camera behind and above the car
     const offset = OFFSET.clone().applyQuaternion(this.tmpQuaternion);

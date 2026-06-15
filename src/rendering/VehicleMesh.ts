@@ -4,11 +4,15 @@ import { Vec3, Quaternion } from 'cannon-es';
 export class VehicleMesh {
   readonly group: THREE.Group;
   private readonly wheels: THREE.Mesh[] = [];
+  // NOTE: nose points toward -Z. The cannon-es RaycastVehicle in this project's
+  // config drives the chassis toward local -Z (positive engineForce -> -Z), so
+  // the mesh's forward (nose) must also be -Z for the car to "face" where it
+  // drives. See src/physics/Vehicle.ts for the physics rationale.
   private readonly wheelLocalPositions: THREE.Vector3[] = [
-    new THREE.Vector3(-0.8, 0, 1.2),   // FL
-    new THREE.Vector3(0.8, 0, 1.2),    // FR
-    new THREE.Vector3(-0.8, 0, -1.2),  // RL
-    new THREE.Vector3(0.8, 0, -1.2),   // RR
+    new THREE.Vector3(-0.8, 0, -1.2),  // FL (nose = -Z)
+    new THREE.Vector3(0.8, 0, -1.2),   // FR
+    new THREE.Vector3(-0.8, 0, 1.2),   // RL
+    new THREE.Vector3(0.8, 0, 1.2),    // RR
   ];
 
   constructor(color: number = 0xe94560) {
@@ -34,7 +38,7 @@ export class VehicleMesh {
       flatShading: true,
     });
     const cabin = new THREE.Mesh(cabinGeom, cabinMat);
-    cabin.position.set(0, 0.75, 0.2);
+    cabin.position.set(0, 0.75, -0.2); // shifted toward nose (-Z)
     cabin.castShadow = true;
     this.group.add(cabin);
 
@@ -61,7 +65,7 @@ export class VehicleMesh {
       flatShading: true,
     });
     const spoiler = new THREE.Mesh(spoilerGeom, spoilerMat);
-    spoiler.position.set(0, 0.9, -1.6);
+    spoiler.position.set(0, 0.9, 1.6); // tail (+Z, opposite the -Z nose)
     this.group.add(spoiler);
 
     // --- Spoiler supports ---
@@ -72,11 +76,11 @@ export class VehicleMesh {
     });
 
     const leftSupport = new THREE.Mesh(supportGeom, supportMat);
-    leftSupport.position.set(-0.5, 0.75, -1.6);
+    leftSupport.position.set(-0.5, 0.75, 1.6); // tail (+Z)
     this.group.add(leftSupport);
 
     const rightSupport = new THREE.Mesh(supportGeom, supportMat);
-    rightSupport.position.set(0.5, 0.75, -1.6);
+    rightSupport.position.set(0.5, 0.75, 1.6); // tail (+Z)
     this.group.add(rightSupport);
   }
 

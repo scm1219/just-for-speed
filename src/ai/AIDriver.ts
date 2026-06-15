@@ -29,7 +29,9 @@ export class AIDriver {
     const point = this.trackMesh.getPointAt(trackT);
     const tangent = this.trackMesh.getTangentAt(trackT);
     this.vehicle.chassisBody.position.set(point.x, point.y + 0.5, point.z);
-    const angle = Math.atan2(tangent.x, tangent.z);
+    // Forward is local -Z (see Vehicle.ts), so align the chassis -Z axis with
+    // the track tangent by adding PI to the +Z yaw.
+    const angle = Math.atan2(tangent.x, tangent.z) + Math.PI;
     this.vehicle.chassisBody.quaternion.setFromEuler(0, angle, 0);
     this.waypointProgress = trackT;
   }
@@ -51,10 +53,13 @@ export class AIDriver {
     const targetAngle = Math.atan2(dx, dz);
 
     const q = this.vehicle.getQuaternion();
-    const currentAngle = Math.atan2(
+    // Yaw of the chassis +Z axis (from quaternion). Forward is -Z, so the
+    // forward-pointing yaw is the +Z yaw plus PI.
+    const plusZYaw = Math.atan2(
       2 * (q.w * q.y + q.x * q.z),
       1 - 2 * (q.y * q.y + q.z * q.z)
     );
+    const currentAngle = plusZYaw + Math.PI;
 
     let angleDiff = targetAngle - currentAngle;
     while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;

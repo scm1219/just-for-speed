@@ -110,7 +110,6 @@ export class Vehicle {
       : this.currentMaxSpeed;
 
     const speed = this.getSpeed();
-    const speedKmh = this.getSpeedKmh();
 
     // --- Steering ---
     let targetSteer = 0;
@@ -136,8 +135,13 @@ export class Vehicle {
     }
 
     // --- Engine force (rear wheels: index 2, 3) ---
-    // cannon-es: positive engineForce -> impulse along forwardWS (+Z local).
-    // VehicleMesh models the nose at +Z and indexForwardAxis=2, so +Z is forward.
+    // In this cannon-es config (indexForwardAxis=2, axleLocal=(-1,0,0)), a
+    // POSITIVE engineForce is the only value that effectively drives the wheels
+    // (negative force barely overcomes rolling friction), and it pushes the
+    // chassis toward local -Z. The whole project therefore treats -Z as forward
+    // (see VehicleMesh nose + Camera). W(accelerate) -> +force (drives -Z =
+    // nose direction), S(reverse) -> -force. getSpeed() returns a positive
+    // value when moving along -Z, so the speed guards below work as written.
     let engineForce = 0;
     if (input.forward && speed < effectiveMaxSpeed) {
       engineForce = this.config.acceleration * this.config.mass * 0.5;
@@ -188,7 +192,9 @@ export class Vehicle {
 
   getSpeed(): number {
     const vel = this.chassisBody.velocity;
-    const forward = new CANNON.Vec3(0, 0, 1);
+    // Forward is local -Z (matches mesh nose + camera). Driving forward (toward
+    // -Z) returns a positive value, so W -> +speed, S -> -speed.
+    const forward = new CANNON.Vec3(0, 0, -1);
     const worldQuat = this.chassisBody.quaternion;
     worldQuat.vmult(forward, forward);
     return vel.dot(forward);
