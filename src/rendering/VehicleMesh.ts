@@ -7,11 +7,13 @@ export class VehicleMesh {
   // NOTE: nose points toward -Z. The cannon-es RaycastVehicle in this project's
   // config drives the chassis toward local -Z (positive engineForce -> -Z), so
   // the mesh's forward (nose) must also be -Z for the car to "face" where it
-  // drives. See src/physics/Vehicle.ts for the physics rationale.
+  // drives. The steering wheels (FL/FR) sit at the nose (-Z) end and the drive
+  // wheels (RL/RR) at the tail (+Z) end, matching Vehicle.WHEEL_POSITIONS so the
+  // visible wheels line up with the physics ray-cast points. See Vehicle.ts.
   private readonly wheelLocalPositions: THREE.Vector3[] = [
-    new THREE.Vector3(-0.8, 0, -1.2),  // FL (nose = -Z)
+    new THREE.Vector3(-0.8, 0, -1.2),  // FL (nose = -Z, steered)
     new THREE.Vector3(0.8, 0, -1.2),   // FR
-    new THREE.Vector3(-0.8, 0, 1.2),   // RL
+    new THREE.Vector3(-0.8, 0, 1.2),   // RL (tail = +Z, driven)
     new THREE.Vector3(0.8, 0, 1.2),    // RR
   ];
 

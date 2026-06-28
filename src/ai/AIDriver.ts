@@ -3,6 +3,11 @@ import { Vehicle, VehicleConfig, DEFAULT_VEHICLE_CONFIG } from '../physics/Vehic
 import { TrackMesh } from '../rendering/TrackMesh';
 import { RubberBanding, Difficulty } from './RubberBanding';
 
+// How long the AI stays flipped before auto-resetting (seconds). Shorter than the
+// player's 5s: AI has no recovery skill, so let it snap back quickly to keep the
+// race flowing.
+const AI_FLIP_RESET_DELAY = 2;
+
 export class AIDriver {
   vehicle: Vehicle;
   private trackMesh: TrackMesh;
@@ -33,6 +38,9 @@ export class AIDriver {
     // the track tangent by adding PI to the +Z yaw.
     const angle = Math.atan2(tangent.x, tangent.z) + Math.PI;
     this.vehicle.chassisBody.quaternion.setFromEuler(0, angle, 0);
+    // Clear motion so a reset (e.g. after a flip) doesn't carry leftover momentum.
+    this.vehicle.chassisBody.velocity.set(0, 0, 0);
+    this.vehicle.chassisBody.angularVelocity.set(0, 0, 0);
     this.waypointProgress = trackT;
   }
 
@@ -78,6 +86,21 @@ export class AIDriver {
     };
 
     this.vehicle.updateFromInput(fakeInput, dt);
+
+    // --- Flip auto-reset ---
+    // The AI is now a real physics vehicle (it drives via input like the player),
+    // so it can roll over on bad cornering. Unlike the player (5s), AI resets
+    // faster so one car flipping doesn't stall the race. Vehicle.checkFlipState /
+    // getFlipState / clearFlipState are reused for consistency with the player.
+    // On reset, snap the body back to its own waypointProgress via setPosition
+    // (the AI's authoritative progress source) so it resumes along the curve
+    // instead of stuck against a wall.
+    this.vehicle.checkFlipState();
+    const flipStatus = this.vehicle.getFlipStatus();
+    if (flipStatus.flipped && flipStatus.elapsed >= AI_FLIP_RESET_DELAY) {
+      this.setPosition(this.waypointProgress);
+      this.vehicle.clearFlipState();
+    }
   }
 
   getProgress(): number {

@@ -50,11 +50,17 @@ const WHEEL_OPTIONS: CANNON.WheelInfoOptions = {
   useCustomSlidingRotationalSpeed: true,
 };
 
+// The nose points toward local -Z (see VehicleMesh / Camera / getSpeed), so the
+// STEERING wheels (index 0=FL, 1=FR) must sit on the -Z end (the nose), and the
+// DRIVE wheels (index 2=RL, 3=RR) on the +Z end (the tail). setSteeringValue() is
+// only applied to index 0/1 (see updateFromInput), so those two wheels have to be
+// the ones at the front or the car cannot turn. (Earlier these were swapped,
+// which left the steering wheels at the tail and the car unable to corner.)
 const WHEEL_POSITIONS = [
-  new CANNON.Vec3(-0.8, 0, 1.2),   // FL
-  new CANNON.Vec3(0.8, 0, 1.2),    // FR
-  new CANNON.Vec3(-0.8, 0, -1.2),  // RL
-  new CANNON.Vec3(0.8, 0, -1.2),   // RR
+  new CANNON.Vec3(-0.8, 0, -1.2),  // FL (nose = -Z, steered)
+  new CANNON.Vec3(0.8, 0, -1.2),   // FR (nose = -Z, steered)
+  new CANNON.Vec3(-0.8, 0, 1.2),   // RL (tail = +Z, driven)
+  new CANNON.Vec3(0.8, 0, 1.2),    // RR (tail = +Z, driven)
 ];
 
 export class Vehicle {
@@ -80,7 +86,11 @@ export class Vehicle {
       shape: chassisShape,
       position: new CANNON.Vec3(0, 1.5, 0),
     });
-    this.chassisBody.angularDamping = 0.5;
+    // Damp angular velocity fairly strongly: with real rear-wheel drive the
+    // engine torque tends to excite pitch (nose-lift) oscillation, and a higher
+    // damping kills the "bounce/flip" wobble without making steering feel sluggish
+    // (steering comes from wheel friction, not chassis spin).
+    this.chassisBody.angularDamping = 0.8;
     world.addBody(this.chassisBody);
 
     // Create raycast vehicle
@@ -131,9 +141,14 @@ export class Vehicle {
 
     // Apply steering to front wheels only (index 0=FL, 1=FR). Rear wheels
     // (2=RL, 3=RR) are fixed and only carry drive/brake force — conventional
-    // front-wheel steering. (×0.5 because RaycastVehicle steerValue is an angle.)
-    this.raycastVehicle.setSteeringValue(this.currentSteer * 0.5, 0); // FL
-    this.raycastVehicle.setSteeringValue(this.currentSteer * 0.5, 1); // FR
+    // front-wheel steering. The sign is NEGATED: with axleLocal=(-1,0,0) and the
+    // steering wheels sitting at the nose (-Z, z=-1.2), cannon's setFromAxisAngle
+    // (around +Y) yields a yaw torque opposite to our input convention
+    // (left input -> steerX=-1 must visibly turn the car LEFT). Negating restores
+    // the correct direction for the front-mounted steering wheels. (×0.5 because
+    // RaycastVehicle steerValue is an angle.)
+    this.raycastVehicle.setSteeringValue(-this.currentSteer * 0.5, 0); // FL
+    this.raycastVehicle.setSteeringValue(-this.currentSteer * 0.5, 1); // FR
 
     // --- Engine force (rear wheels: index 2, 3) ---
     // In this cannon-es config (indexForwardAxis=2, axleLocal=(-1,0,0)), a
@@ -144,15 +159,23 @@ export class Vehicle {
     // nose direction), S(reverse) -> -force. getSpeed() returns a positive
     // value when moving along -Z, so the speed guards below work as written.
     let engineForce = 0;
+    // Drive coefficient is intentionally small: with the (now correct) rear-wheel
+    // drive layout, the engine impulse is applied at the tail contact point
+    // ~1.2 m behind the center of mass, which creates a pitch (nose-lift) torque.
+    // The chassis pitch inertia is only ~425 kg·m², so a large force flips the car
+    // backward (wheelie -> rollover). 0.22 keeps the nose-down torque manageable
+    // while still giving brisk acceleration. Tune here if the car wheelies again.
+    const DRIVE_COEFF = 0.22;
+    const REVERSE_COEFF = DRIVE_COEFF * 0.3;
     if (input.forward && speed < effectiveMaxSpeed) {
-      engineForce = this.config.acceleration * this.config.mass * 0.5;
+      engineForce = this.config.acceleration * this.config.mass * DRIVE_COEFF;
       if (isBoosted) {
         engineForce *= this.config.boostMultiplier;
       }
     }
     const maxReverseSpeed = effectiveMaxSpeed * 0.3;
     if (input.backward && speed > -maxReverseSpeed) {
-      engineForce = -this.config.acceleration * this.config.mass * 0.15;
+      engineForce = -this.config.acceleration * this.config.mass * REVERSE_COEFF;
     }
 
     this.raycastVehicle.applyEngineForce(engineForce, 2);
