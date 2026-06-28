@@ -129,10 +129,11 @@ export class Vehicle {
       this.currentSteer = Math.max(this.currentSteer - steerRate * dt, targetSteer);
     }
 
-    // Apply steering to all 4 wheels
-    for (let i = 0; i < 4; i++) {
-      this.raycastVehicle.setSteeringValue(this.currentSteer * 0.5, i);
-    }
+    // Apply steering to front wheels only (index 0=FL, 1=FR). Rear wheels
+    // (2=RL, 3=RR) are fixed and only carry drive/brake force — conventional
+    // front-wheel steering. (×0.5 because RaycastVehicle steerValue is an angle.)
+    this.raycastVehicle.setSteeringValue(this.currentSteer * 0.5, 0); // FL
+    this.raycastVehicle.setSteeringValue(this.currentSteer * 0.5, 1); // FR
 
     // --- Engine force (rear wheels: index 2, 3) ---
     // In this cannon-es config (indexForwardAxis=2, axleLocal=(-1,0,0)), a

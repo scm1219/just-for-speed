@@ -3,5 +3,5 @@ dist/
 .superpowers/
 *.local
 .claude
-docs
+superpowers
 CLAUDE.MD

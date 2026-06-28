@@ -86,7 +86,9 @@ function findTargetAhead(self: Vehicle, targets: Vehicle[]): Vehicle | null {
 function isAhead(self: Vehicle, target: Vehicle): boolean {
   const selfPos = self.getPosition();
   const targetPos = target.getPosition();
-  const forward = new CANNON.Vec3(0, 0, 1);
+  // Forward is local -Z (matches Vehicle.getSpeed / mesh nose / camera).
+  // Previously +Z, which flipped the judgment so attacks hit cars BEHIND.
+  const forward = new CANNON.Vec3(0, 0, -1);
   self.chassisBody.quaternion.vmult(forward, forward);
   const toTarget = new CANNON.Vec3(targetPos.x - selfPos.x, 0, targetPos.z - selfPos.z);
   return forward.dot(toTarget) > 0;
