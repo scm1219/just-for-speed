@@ -18,13 +18,22 @@ const DIFFICULTIES: { value: Difficulty; label: string }[] = [
   { value: 'hard', label: 'Hard' },
 ];
 
+export type AIOpponents = 'none' | 'few' | 'full';
+
+const AI_OPTIONS: { value: AIOpponents; label: string; count: number }[] = [
+  { value: 'none', label: '无', count: 0 },
+  { value: 'few', label: '少量', count: 2 },
+  { value: 'full', label: '满', count: 5 },
+];
+
 export class MenuScreen {
   private element: HTMLElement;
   private selectedTrack: string = 'city';
   private selectedDifficulty: Difficulty = 'normal';
-  private onStart: (trackId: string, difficulty: Difficulty) => void;
+  private selectedAIOpponents: AIOpponents = 'full';
+  private onStart: (trackId: string, difficulty: Difficulty, aiCount: number) => void;
 
-  constructor(onStart: (trackId: string, difficulty: Difficulty) => void) {
+  constructor(onStart: (trackId: string, difficulty: Difficulty, aiCount: number) => void) {
     this.onStart = onStart;
 
     this.element = document.createElement('div');
@@ -46,6 +55,15 @@ export class MenuScreen {
       <button class="menu-diff-btn ${d.value === this.selectedDifficulty ? 'active' : ''}"
               data-diff="${d.value}">
         ${d.label}
+      </button>
+    `
+    ).join('');
+
+    const aiButtonsHtml = AI_OPTIONS.map(
+      (o) => `
+      <button class="menu-diff-btn ${o.value === this.selectedAIOpponents ? 'active' : ''}"
+              data-ai="${o.value}">
+        ${o.label}
       </button>
     `
     ).join('');
@@ -103,13 +121,22 @@ export class MenuScreen {
         }
         .menu-start-btn:hover { transform: scale(1.05); }
         .menu-start-btn:active { transform: scale(0.98); }
+        .menu-debug-link {
+          margin-top: 20px; background: none; border: none; cursor: pointer;
+          color: #666; font-size: 13px; text-decoration: underline;
+          transition: color 0.2s;
+        }
+        .menu-debug-link:hover { color: #16c79a; }
       </style>
       <div class="menu-title">JUST FOR SPEED</div>
       <div class="menu-section-label">Select Track</div>
       <div class="menu-track-cards">${trackCardsHtml}</div>
       <div class="menu-section-label">Difficulty</div>
       <div class="menu-diff-buttons">${diffButtonsHtml}</div>
+      <div class="menu-section-label">AI 对手</div>
+      <div class="menu-diff-buttons">${aiButtonsHtml}</div>
       <button class="menu-start-btn">START</button>
+      <button class="menu-debug-link">🔧 车辆建模调试</button>
     `;
 
     this.bindEvents();
@@ -124,16 +151,28 @@ export class MenuScreen {
       });
     });
 
-    this.element.querySelectorAll('.menu-diff-btn').forEach((btn) => {
+    this.element.querySelectorAll('.menu-diff-btn[data-diff]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const diff = (btn as HTMLElement).dataset.diff as Difficulty;
         this.selectDifficulty(diff);
       });
     });
 
+    this.element.querySelectorAll('.menu-diff-btn[data-ai]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const ai = (btn as HTMLElement).dataset.ai as AIOpponents;
+        this.selectAIOpponents(ai);
+      });
+    });
+
     this.element.querySelector('.menu-start-btn')!.addEventListener('click', () => {
+      const aiCount = AI_OPTIONS.find((o) => o.value === this.selectedAIOpponents)!.count;
       this.element.remove();
-      this.onStart(this.selectedTrack, this.selectedDifficulty);
+      this.onStart(this.selectedTrack, this.selectedDifficulty, aiCount);
+    });
+
+    this.element.querySelector('.menu-debug-link')!.addEventListener('click', () => {
+      window.location.href = 'debug-vehicle.html';
     });
   }
 
@@ -154,9 +193,21 @@ export class MenuScreen {
 
   private selectDifficulty(difficulty: Difficulty): void {
     this.selectedDifficulty = difficulty;
-    this.element.querySelectorAll('.menu-diff-btn').forEach((btn) => {
+    this.element.querySelectorAll('.menu-diff-btn[data-diff]').forEach((btn) => {
       const d = (btn as HTMLElement).dataset.diff;
       if (d === difficulty) {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    });
+  }
+
+  private selectAIOpponents(ai: AIOpponents): void {
+    this.selectedAIOpponents = ai;
+    this.element.querySelectorAll('.menu-diff-btn[data-ai]').forEach((btn) => {
+      const a = (btn as HTMLElement).dataset.ai;
+      if (a === ai) {
         btn.classList.add('active');
       } else {
         btn.classList.remove('active');

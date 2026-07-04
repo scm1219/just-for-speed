@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>车辆建模调试 · Just For Speed</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; overflow: hidden; background: #15151f;
+      font-family: 'Segoe UI', system-ui, sans-serif; color: #eaeaea;
+    }
+    canvas { display: block; }
+
+    /* ---------- 左侧控制面板 ---------- */
+    #panel {
+      position: fixed; top: 12px; left: 12px; width: 250px;
+      max-height: calc(100vh - 24px); overflow-y: auto;
+      background: rgba(20, 20, 32, 0.92); backdrop-filter: blur(8px);
+      border: 1px solid #333; border-radius: 10px; padding: 14px 16px;
+      z-index: 10; font-size: 13px; line-height: 1.5;
+    }
+    #panel h2 {
+      margin: 0 0 4px; font-size: 15px;
+      background: linear-gradient(to right, #f5a623, #e94560);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    #panel .hint { color: #777; font-size: 11px; margin-bottom: 12px; }
+    #panel section { margin-bottom: 14px; }
+    #panel section > label.heading {
+      display: block; text-transform: uppercase; letter-spacing: 1px;
+      font-size: 10px; color: #888; margin-bottom: 6px;
+    }
+    #panel label.row {
+      display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer;
+    }
+    #panel input[type="checkbox"] { accent-color: #e94560; }
+    #panel input[type="color"] {
+      width: 32px; height: 22px; padding: 0; border: none; background: none; cursor: pointer;
+    }
+    #panel input[type="range"] {
+      width: 110px; accent-color: #e94560; vertical-align: middle;
+    }
+    #panel .val { color: #16c79a; font-variant-numeric: tabular-nums; width: 32px; text-align: right; }
+    #panel select {
+      background: #2a2a3a; color: #fff; border: 1px solid #444;
+      border-radius: 4px; padding: 3px 6px; font-size: 12px;
+    }
+    #panel button.link {
+      background: none; border: none; color: #4488ff; cursor: pointer;
+      text-decoration: underline; font-size: 12px; padding: 0;
+    }
+    .divider { height: 1px; background: #333; margin: 10px 0; }
+
+    /* ---------- 右上角信息条 ---------- */
+    #info {
+      position: fixed; top: 12px; right: 12px; z-index: 10;
+      background: rgba(20, 20, 32, 0.92); border: 1px solid #333;
+      border-radius: 8px; padding: 8px 12px; font-size: 12px;
+      font-variant-numeric: tabular-nums; text-align: right;
+    }
+    #info b { color: #16c79a; }
+  </style>
+</head>
+<body>
+  <div id="panel">
+    <h2>车辆建模调试</h2>
+    <div class="hint">拖拽旋转 · 滚轮缩放 · 右键平移</div>
+
+    <section>
+      <label class="heading">可视化辅助</label>
+      <label class="row"><input type="checkbox" id="wireframe" /> 线框模式</label>
+      <label class="row"><input type="checkbox" id="bbox" /> 包围盒 (Box3)</label>
+      <label class="row"><input type="checkbox" id="axes" checked /> 坐标轴 (X红/Y绿/Z蓝)</label>
+      <label class="row"><input type="checkbox" id="grid" checked /> 地面网格</label>
+    </section>
+
+    <div class="divider"></div>
+
+    <section>
+      <label class="heading">部件显隐</label>
+      <label class="row"><input type="checkbox" id="vis-body" checked /> 车身 body</label>
+      <label class="row"><input type="checkbox" id="vis-cabin" checked /> 玻璃座舱 cabin</label>
+      <label class="row"><input type="checkbox" id="vis-wheels" checked /> 车轮 wheels</label>
+      <label class="row"><input type="checkbox" id="vis-lights" checked /> 车灯 lights</label>
+      <label class="row"><input type="checkbox" id="vis-spoiler" checked /> 尾翼 spoiler</label>
+    </section>
+
+    <div class="divider"></div>
+
+    <section>
+      <label class="heading">车身材质</label>
+      <label class="row">
+        <input type="color" id="bodyColor" value="#e94560" />
+        <span>车身颜色</span>
+      </label>
+      <label class="row">
+        <input type="range" id="roughness" min="0" max="1" step="0.05" value="0.35" />
+        <span>粗糙度</span><span class="val" id="roughness-val">0.35</span>
+      </label>
+      <label class="row">
+        <input type="range" id="metalness" min="0" max="1" step="0.05" value="0.6" />
+        <span>金属度</span><span class="val" id="metalness-val">0.60</span>
+      </label>
+      <label class="row">
+        <input type="checkbox" id="flatShading" /> 平面着色 (flatShading)
+      </label>
+    </section>
+
+    <div class="divider"></div>
+
+    <section>
+      <label class="heading">预设</label>
+      <label class="row">
+        <select id="preset-color">
+          <option value="#e94560">玩家 红</option>
+          <option value="#3498db">AI 蓝</option>
+          <option value="#2ecc71">AI 绿</option>
+          <option value="#f39c12">AI 橙</option>
+          <option value="#9b59b6">AI 紫</option>
+          <option value="#e74c3c">AI 红</option>
+        </select>
+        <button class="link" id="apply-preset">应用</button>
+      </label>
+      <label class="row">
+        <button class="link" id="reset-view">重置视角</button>
+      </label>
+    </section>
+  </div>
+
+  <div id="info">
+    <div>三角面 <b id="stat-tris">-</b></div>
+    <div>顶点 <b id="stat-verts">-</b></div>
+    <div>Draw call <b id="stat-calls">-</b></div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+    // Load the REAL vehicle model class -- edits to VehicleMesh.ts show here
+    // live (Vite compiles the TS on the fly).
+    import { VehicleMesh } from '/src/rendering/VehicleMesh.ts';
+
+    // ---------------------------------------------------------------- renderer
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    document.body.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x15151f);
+
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 200);
+    camera.position.set(6, 4, 7);
+
+    // Orbit controls: drag = rotate, wheel = zoom, right-drag = pan.
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 0.5, 0);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+
+    // ----------------------------------------------------------------- lights
+    // Match Environment.ts so what you see here matches the in-game look.
+    scene.add(new THREE.HemisphereLight(0x87ceeb, 0x2d5a27, 0.6));
+    const sun = new THREE.DirectionalLight(0xfff4e0, 1.0);
+    sun.position.set(8, 14, 6);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = 60;
+    sun.shadow.camera.left = -12;
+    sun.shadow.camera.right = 12;
+    sun.shadow.camera.top = 12;
+    sun.shadow.camera.bottom = -12;
+    scene.add(sun);
+    // A soft fill light from the opposite side so shaded faces aren't pure black.
+    const fill = new THREE.DirectionalLight(0x8899ff, 0.25);
+    fill.position.set(-6, 5, -4);
+    scene.add(fill);
+
+    // ------------------------------------------------------------------- car
+    const car = new VehicleMesh(0xe94560);
+    scene.add(car.group);
+
+    // Named part meshes, looked up for visibility toggling.
+    const PART_NAMES = ['body', 'cabin', 'wheels', 'lights', 'spoiler'];
+    const parts = {};
+    for (const n of PART_NAMES) {
+      parts[n] = car.group.getObjectByName(n);
+    }
+    const bodyMesh = parts.body;
+
+    // ------------------------------------------------------ helper overlays
+    const axes = new THREE.AxesHelper(3);
+    axes.position.y = 0.02;
+    scene.add(axes);
+
+    const grid = new THREE.GridHelper(40, 40, 0x444466, 0x2a2a3a);
+    scene.add(grid);
+
+    // Ground to receive the car shadow.
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(60, 60),
+      new THREE.MeshStandardMaterial({ color: 0x1e2a1e, roughness: 1 }),
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    // Bounding box helper (rebuilt on demand).
+    let boxHelper = null;
+    function rebuildBox(show) {
+      if (boxHelper) { scene.remove(boxHelper); boxHelper.dispose?.(); boxHelper = null; }
+      if (!show) return;
+      const box = new THREE.Box3().setFromObject(car.group);
+      boxHelper = new THREE.Box3Helper(box, 0x16c79a);
+      scene.add(boxHelper);
+    }
+
+    // ------------------------------------------------------- stats display
+    function trisOf(mesh) {
+      if (!mesh) return 0;
+      let t = 0;
+      mesh.traverse((o) => {
+        const g = o.geometry;
+        if (g && g.index) t += g.index.count / 3;
+        else if (g) t += g.attributes.position.count / 3;
+      });
+      return Math.round(t);
+    }
+    function vertsOf(mesh) {
+      if (!mesh) return 0;
+      let v = 0;
+      mesh.traverse((o) => {
+        if (o.geometry && o.geometry.attributes.position) v += o.geometry.attributes.position.count;
+      });
+      return v;
+    }
+    function updateStats() {
+      document.getElementById('stat-tris').textContent = trisOf(car.group).toLocaleString();
+      document.getElementById('stat-verts').textContent = vertsOf(car.group).toLocaleString();
+    }
+    updateStats();
+
+    // ----------------------------------------------------- control wiring
+    const $ = (id) => document.getElementById(id);
+
+    // Visual aids
+    $('axes').addEventListener('change', (e) => { axes.visible = e.target.checked; });
+    $('grid').addEventListener('change', (e) => { grid.visible = e.target.checked; });
+    $('bbox').addEventListener('change', (e) => { rebuildBox(e.target.checked); });
+    $('wireframe').addEventListener('change', (e) => {
+      const on = e.target.checked;
+      car.group.traverse((o) => {
+        if (o.isMesh && o.material) o.material.wireframe = on;
+      });
+    });
+
+    // Part visibility
+    const visMap = {
+      'vis-body': 'body', 'vis-cabin': 'cabin', 'vis-wheels': 'wheels',
+      'vis-lights': 'lights', 'vis-spoiler': 'spoiler',
+    };
+    Object.entries(visMap).forEach(([id, part]) => {
+      $(id).addEventListener('change', (e) => {
+        if (parts[part]) parts[part].visible = e.target.checked;
+      });
+    });
+
+    // Material controls -- operate on the body mesh's material (car paint).
+    const bodyMat = bodyMesh ? bodyMesh.material : null;
+    function setBodyColor(hex) {
+      if (!bodyMat) return;
+      bodyMat.color.set(hex);
+      // Spoiler shares the body color identity; keep it in sync for realism.
+      if (parts.spoiler && parts.spoiler.material) parts.spoiler.material.color.set(hex);
+    }
+    $('bodyColor').addEventListener('input', (e) => setBodyColor(e.target.value));
+    $('roughness').addEventListener('input', (e) => {
+      const v = parseFloat(e.target.value);
+      $('roughness-val').textContent = v.toFixed(2);
+      if (bodyMat) bodyMat.roughness = v;
+    });
+    $('metalness').addEventListener('input', (e) => {
+      const v = parseFloat(e.target.value);
+      $('metalness-val').textContent = v.toFixed(2);
+      if (bodyMat) bodyMat.metalness = v;
+    });
+    $('flatShading').addEventListener('change', (e) => {
+      if (!bodyMat) return;
+      bodyMat.flatShading = e.target.checked;
+      bodyMat.needsUpdate = true;
+    });
+
+    // Presets
+    $('apply-preset').addEventListener('click', () => {
+      const hex = $('preset-color').value;
+      $('bodyColor').value = hex;
+      setBodyColor(hex);
+    });
+    $('reset-view').addEventListener('click', () => {
+      camera.position.set(6, 4, 7);
+      controls.target.set(0, 0.5, 0);
+      controls.update();
+    });
+
+    // ------------------------------------------------------------- resize
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+
+    // --------------------------------------------------------------- loop
+    function animate() {
+      controls.update();
+      if (boxHelper && boxHelper.visible) {
+        // Keep the box in sync if transforms ever change.
+        // (Cheap to skip; left as a no-op since the car is static here.)
+      }
+      renderer.render(scene, camera);
+      $('stat-calls').textContent = renderer.info.render.calls;
+      requestAnimationFrame(animate);
+    }
+    animate();
+  </script>
+</body>
+</html>

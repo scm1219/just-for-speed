@@ -53,6 +53,7 @@ let effects: Effects | null = null;
 let heldItem: ItemType | null = null;
 let currentTrackId: string | null = null;
 let currentDifficulty: Difficulty = 'normal';
+let currentAICount: number = 5;
 let animationId: number = 0;
 let lastRaceTime: number = 0;
 
@@ -151,12 +152,13 @@ function cleanupRace(): void {
   lastRaceTime = 0;
 }
 
-async function startRace(trackId: string, difficulty: Difficulty): Promise<void> {
+async function startRace(trackId: string, difficulty: Difficulty, aiCount: number): Promise<void> {
   // Clean any previous race
   cleanupRace();
 
   currentTrackId = trackId;
   currentDifficulty = difficulty;
+  currentAICount = aiCount;
 
   // Load track data
   const trackLoader = new TrackLoader();
@@ -178,11 +180,11 @@ async function startRace(trackId: string, difficulty: Difficulty): Promise<void>
   trackCollider = new TrackCollider();
   trackCollider.build(trackMesh, physics.world);
 
-  // Create AI drivers (5 AI with staggered positions)
+  // Create AI drivers (count from menu selection, staggered positions)
   aiDrivers = [];
   aiVehicleMeshes = [];
   const aiColors = [0x3498db, 0x2ecc71, 0xf39c12, 0x9b59b6, 0xe74c3c];
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < aiCount; i++) {
     const ai = new AIDriver(physics.world, trackMesh, difficulty);
     // Stagger AI behind the player at different track positions
     const startT = ((1 - (i + 1) * 0.03) + 1) % 1; // slightly behind start
@@ -239,7 +241,7 @@ async function startRace(trackId: string, difficulty: Difficulty): Promise<void>
   // Minimap
   const minimapContainer = document.getElementById('hud-minimap');
   if (minimapContainer) {
-    minimap = new Minimap(minimapContainer, trackMesh, 5);
+    minimap = new Minimap(minimapContainer, trackMesh, aiCount);
   }
 
   // Audio
@@ -490,7 +492,7 @@ function onRaceComplete(): void {
     () => {
       // Restart same track
       if (currentTrackId) {
-        startRace(currentTrackId, currentDifficulty);
+        startRace(currentTrackId, currentDifficulty, currentAICount);
       }
     },
     () => {
@@ -502,8 +504,8 @@ function onRaceComplete(): void {
 }
 
 function showMenu(): void {
-  new MenuScreen((trackId, difficulty) => {
-    startRace(trackId, difficulty);
+  new MenuScreen((trackId, difficulty, aiCount) => {
+    startRace(trackId, difficulty, aiCount);
   });
 }
 
