@@ -7,6 +7,9 @@ import { RubberBanding, Difficulty } from './RubberBanding';
 // player's 5s: AI has no recovery skill, so let it snap back quickly to keep the
 // race flowing.
 const AI_FLIP_RESET_DELAY = 2;
+// Throttle is always held, so "waypoint speed but zero ground speed" means the
+// car wedged itself into a barrier. Snap it back onto its waypoint like a flip.
+const AI_STUCK_RESET_DELAY = 1.5;
 
 export class AIDriver {
   vehicle: Vehicle;
@@ -14,6 +17,7 @@ export class AIDriver {
   private rubberBanding: RubberBanding;
   private waypointProgress: number = 0;
   private speedFactor: number = 1.0;
+  private stuckTime: number = 0;
 
   constructor(
     world: CANNON.World,
@@ -100,6 +104,19 @@ export class AIDriver {
     if (flipStatus.flipped && flipStatus.elapsed >= AI_FLIP_RESET_DELAY) {
       this.setPosition(this.waypointProgress);
       this.vehicle.clearFlipState();
+      this.stuckTime = 0;
+      return;
+    }
+
+    // --- Stuck auto-reset (wedged upright against a barrier) ---
+    if (Math.abs(this.vehicle.getSpeed()) < 0.5) {
+      this.stuckTime += dt;
+    } else {
+      this.stuckTime = 0;
+    }
+    if (this.stuckTime >= AI_STUCK_RESET_DELAY) {
+      this.setPosition(this.waypointProgress);
+      this.stuckTime = 0;
     }
   }
 

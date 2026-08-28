@@ -1,5 +1,6 @@
 import * as CANNON from 'cannon-es';
 import { TrackMesh } from '../rendering/TrackMesh';
+import { WALL_MATERIAL } from './PhysicsWorld';
 
 export class TrackCollider {
   build(trackMesh: TrackMesh, world: CANNON.World): void {
@@ -43,10 +44,11 @@ export class TrackCollider {
       const wallShape = new CANNON.Box(new CANNON.Vec3(0.3, 1.0, dist / 2 + 0.5));
       const wallQuat = new CANNON.Quaternion().setFromEuler(0, angle, 0);
 
-      // Left barrier wall
+      // Left barrier wall (low-friction vs chassis so hits slide, not roll)
       const leftWall = new CANNON.Body({
         mass: 0,
         shape: wallShape,
+        material: WALL_MATERIAL,
         position: new CANNON.Vec3(
           point.x + rnx * (-barrierOffset),
           point.y + 1.0,
@@ -60,6 +62,7 @@ export class TrackCollider {
       const rightWall = new CANNON.Body({
         mass: 0,
         shape: new CANNON.Box(new CANNON.Vec3(0.3, 1.0, dist / 2 + 0.5)),
+        material: WALL_MATERIAL,
         position: new CANNON.Vec3(
           point.x + rnx * barrierOffset,
           point.y + 1.0,

@@ -4,37 +4,45 @@ import {
   mergeGeometries,
   mergeVertices,
 } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { WheelVisual } from '../physics/Vehicle';
 
 /**
  * Streamlined (流线型) vehicle model built from procedural geometry.
  *
- * The previous version stacked flat-shaded boxes (Low-poly). This version
- * extrudes a wedge-shaped side profile, smooths the normals for a glossy
- * car-paint look, and merges geometries to keep the per-vehicle draw call
- * count at 3-4 (down from 9) -- important because a race can render 6 cars.
+ * The body is an extruded wedge profile with smoothed normals for a glossy
+ * car-paint look. The four wheels are SEPARATE meshes driven by the physics
+ * raycast vehicle every frame (see updateWheels): they roll with speed, steer
+ * with the front wheels, and ride the live suspension length — the old
+ * single merged static wheel mesh could not do any of that.
  *
- * Public surface (used by main.ts) is unchanged:
+ * Vertical alignment: the chassis body origin sits ~0.67 m above the road at
+ * rest (connection height 0 + suspension rest 0.4 − equilibrium compression
+ * ~0.08 + wheel radius 0.35). Every body-part Y coordinate below is authored
+ * relative to the ROAD surface (0 = ground) and shifted down by
+ * GROUND_TO_ORIGIN when placed, so the car sits ON the road instead of
+ * hovering (the previous mesh drew the tires a full body-height too high).
+ *
+ * Public surface (used by main.ts):
  *   - `new VehicleMesh(color)`
  *   - `mesh.group` (added to the scene)
- *   - `mesh.updateFromPhysics(pos, quat)`
+ *   - `mesh.updateFromPhysics(pos, quat)` (chassis)
+ *   - `mesh.updateWheels(wheelVisuals)` (per-wheel, from Vehicle.getWheelVisuals)
  *
  * NOTE: nose points toward -Z (see Vehicle.ts RaycastVehicle config). The
  * steering wheels sit at the nose (-Z) end, drive wheels at the tail (+Z).
  */
 export class VehicleMesh {
   readonly group: THREE.Group;
-  private readonly wheels: THREE.Mesh[] = [];
-  // Match Vehicle.WHEEL_POSITIONS so visible wheels line up with the
-  // physics ray-cast contact points. Nose = -Z, tail = +Z.
-  private readonly wheelLocalPositions: THREE.Vector3[] = [
-    new THREE.Vector3(-0.8, 0, -1.2), // FL (nose = -Z, steered)
-    new THREE.Vector3(0.8, 0, -1.2),  // FR
-    new THREE.Vector3(-0.8, 0, 1.2),  // RL (tail = +Z, driven)
-    new THREE.Vector3(0.8, 0, 1.2),   // RR
-  ];
+  // One mesh per wheel, indexed like Vehicle.WHEEL_POSITIONS (0=FL, 1=FR,
+  // 2=RL, 3=RR). Parented under `wheelsGroup`.
+  private readonly wheelMeshes: THREE.Mesh[] = [];
 
-  // Body footprint (kept compatible with the existing physics chassis +
-  // wheel layout): width ~1.5 (inside the 1.6 wheel track), length 3.4.
+  // Chassis-body-origin height above the road at suspension rest. See the
+  // class doc: all part Y coordinates are authored with 0 = road surface.
+  private static readonly GROUND_TO_ORIGIN = 0.67;
+
+  // Body footprint (kept compatible with the physics chassis box 1.36 wide ×
+  // 3.1 long): width 1.5, length 3.4, height 0.15..1.0 above the road.
   private static readonly BODY_WIDTH = 1.5;
   private static readonly BODY_HALF_WIDTH = VehicleMesh.BODY_WIDTH / 2;
 
@@ -122,9 +130,10 @@ export class VehicleMesh {
   }
 
   // Remap ExtrudeGeometry vertices from profile space to car space.
-  // Profile drawn in Shape: X=length(nose at -X/-halfLen), Y=height(0.15..1.0).
-  // ExtrudeGeometry adds Z=extrude depth in [0, +depth] (toward +Z).
-  // Car space: X=width(centered on 0), Y=height, Z=length(nose at -Z).
+  // Profile drawn in Shape: X=length(nose at -X/-halfLen), Y=height(0.15..1.0
+  // above the road). ExtrudeGeometry adds Z=extrude depth in [0, +depth].
+  // Car space: X=width(centered on 0), Y=height(shifted down by
+  // GROUND_TO_ORIGIN so 0 = chassis origin), Z=length(nose at -Z).
   private remapBodyAxes(geom: THREE.BufferGeometry): void {
     const pos = geom.attributes.position as THREE.BufferAttribute;
     const px = new THREE.Vector3();
@@ -132,7 +141,7 @@ export class VehicleMesh {
       px.fromBufferAttribute(pos, i);
       // (profileX=length, profileY=height, profileZ=extrudeZ) -> (carX,carY,carZ)
       const carX = px.z - VehicleMesh.BODY_HALF_WIDTH; // width: [0,depth] -> [-half,+half]
-      const carY = px.y;                               // height
+      const carY = px.y - VehicleMesh.GROUND_TO_ORIGIN; // road-relative -> body-local
       const carZ = px.x;                               // length (nose -X -> -Z)
       pos.setXYZ(i, carX, carY, carZ);
     }
@@ -158,15 +167,18 @@ export class VehicleMesh {
   }
 
   // Spoiler (rear wing) + supports, merged into one geometry, one material.
+  // Wing/support Y values are road-relative (authored heights 1.05 / 0.88).
   private buildSpoiler(color: number): void {
+    const wingY = 1.05 - VehicleMesh.GROUND_TO_ORIGIN;
+    const supportY = 0.88 - VehicleMesh.GROUND_TO_ORIGIN;
     const wingGeom = new THREE.BoxGeometry(1.4, 0.05, 0.3);
-    wingGeom.translate(0, 1.05, 1.55);
+    wingGeom.translate(0, wingY, 1.55);
 
     const supportGeom = new THREE.BoxGeometry(0.06, 0.3, 0.06);
     const leftSupport = supportGeom.clone();
-    leftSupport.translate(-0.55, 0.88, 1.55);
+    leftSupport.translate(-0.55, supportY, 1.55);
     const rightSupport = supportGeom.clone();
-    rightSupport.translate(0.55, 0.88, 1.55);
+    rightSupport.translate(0.55, supportY, 1.55);
 
     const spoilerGeom = mergeGeometries([wingGeom, leftSupport, rightSupport], false);
     if (!spoilerGeom) return;
@@ -200,7 +212,7 @@ export class VehicleMesh {
     });
     const cabin = new THREE.Mesh(cabinGeom, cabinMat);
     cabin.name = VehicleMesh.CABIN_NAME;
-    cabin.position.set(0, 0.98, -0.1); // shifted toward nose (-Z)
+    cabin.position.set(0, 0.98 - VehicleMesh.GROUND_TO_ORIGIN, -0.1); // toward nose (-Z)
     cabin.castShadow = true;
     this.group.add(cabin);
   }
@@ -227,87 +239,79 @@ export class VehicleMesh {
   }
 
   // -------------------------------------------------------------------------
-  // Wheels: tires + hubs for all 4 wheels merged into a single geometry /
-  // single material set so the whole car's wheels cost one draw call.
+  // Wheels: four SEPARATE meshes (one per wheel, tire + hub merged with
+  // vertex colors = one draw call per wheel) under a `wheels` group. The
+  // geometry of each wheel is centered on the wheel axle so updateWheels()
+  // can place them from the physics raycast vehicle every frame: rolling,
+  // steering and suspension travel are all driven by the simulation.
   // -------------------------------------------------------------------------
   private buildWheels(): void {
     const tireGeom = new THREE.CylinderGeometry(0.35, 0.35, 0.25, 20);
     const hubGeom = new THREE.CylinderGeometry(0.2, 0.2, 0.27, 16);
 
-    const parts: THREE.BufferGeometry[] = [];
-    for (const pos of this.wheelLocalPositions) {
-      // Cylinder axis is Y by default; rotate so axis runs along X (wheel
-      // spans the car's width), matching the original rotation.z = PI/2.
-      const tire = tireGeom.clone();
-      tire.rotateZ(Math.PI / 2);
-      tire.translate(pos.x, pos.y + 0.35, pos.z);
+    // Cylinder axis is Y by default; rotate so the axis runs along X (the
+    // wheel spans the car's width), matching cannon's axleLocal=(-1,0,0) wheel
+    // frame used by WheelInfo.worldTransform.
+    tireGeom.rotateZ(Math.PI / 2);
+    hubGeom.rotateZ(Math.PI / 2);
 
-      const hub = hubGeom.clone();
-      hub.rotateZ(Math.PI / 2);
-      hub.translate(pos.x, pos.y + 0.35, pos.z);
+    const wheelsGroup = new THREE.Group();
+    wheelsGroup.name = VehicleMesh.WHEELS_NAME;
 
-      parts.push(tire, hub);
-    }
+    for (let i = 0; i < 4; i++) {
+      const parts = [tireGeom, hubGeom];
+      const wheelGeom = mergeGeometries(parts, false);
+      if (!wheelGeom) continue;
 
-    const wheelsGeom = mergeGeometries(parts, false);
-    if (!wheelsGeom) return;
-
-    const wheelMat = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 0.9,
-      metalness: 0.0,
-    });
-    // Tire = dark rubber, hub = metallic silver. Encode via vertex colors so
-    // a single material/draw call can show both.
-    this.paintWheels(wheelsGeom, parts);
-
-    const wheels = new THREE.Mesh(wheelsGeom, wheelMat);
-    wheels.name = VehicleMesh.WHEELS_NAME;
-    wheels.castShadow = true;
-    this.group.add(wheels);
-    // Keep a reference shape compatible with the old API (single mesh list).
-    this.wheels.push(wheels);
-  }
-
-  // Assign vertex colors per sub-geometry: tires dark, hubs silver. `parts`
-  // mirrors the order built in buildWheels ([tire,hub] * 4).
-  private paintWheels(
-    merged: THREE.BufferGeometry,
-    parts: THREE.BufferGeometry[],
-  ): void {
-    const count = merged.attributes.position.count;
-    const colors = new Float32Array(count * 3);
-    const tireColor = new THREE.Color(0x111111);
-    const hubColor = new THREE.Color(0xcccccc);
-    let offset = 0;
-    for (let p = 0; p < parts.length; p++) {
-      const partCount = parts[p].attributes.position.count;
-      const c = p % 2 === 0 ? tireColor : hubColor; // [tire, hub, tire, hub...]
-      for (let i = 0; i < partCount; i++) {
-        colors[(offset + i) * 3 + 0] = c.r;
-        colors[(offset + i) * 3 + 1] = c.g;
-        colors[(offset + i) * 3 + 2] = c.b;
+      // Vertex colors: tire dark rubber, hub metallic silver.
+      const count = wheelGeom.attributes.position.count;
+      const colors = new Float32Array(count * 3);
+      const tireColor = new THREE.Color(0x111111);
+      const hubColor = new THREE.Color(0xcccccc);
+      let offset = 0;
+      for (let p = 0; p < parts.length; p++) {
+        const partCount = parts[p].attributes.position.count;
+        const c = p % 2 === 0 ? tireColor : hubColor;
+        for (let j = 0; j < partCount; j++) {
+          colors[(offset + j) * 3 + 0] = c.r;
+          colors[(offset + j) * 3 + 1] = c.g;
+          colors[(offset + j) * 3 + 2] = c.b;
+        }
+        offset += partCount;
       }
-      offset += partCount;
+      wheelGeom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+      const wheelMat = new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.9,
+        metalness: 0.0,
+      });
+      const wheel = new THREE.Mesh(wheelGeom, wheelMat);
+      wheel.castShadow = true;
+      wheelsGroup.add(wheel);
+      this.wheelMeshes.push(wheel);
     }
-    merged.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+    this.group.add(wheelsGroup);
   }
 
   // -------------------------------------------------------------------------
   // Lights: headlights (nose) + taillights (tail), merged into one mesh.
   // -------------------------------------------------------------------------
   private buildLights(): void {
+    const headY = 0.5 - VehicleMesh.GROUND_TO_ORIGIN;
+    const tailY = 0.55 - VehicleMesh.GROUND_TO_ORIGIN;
     const headlightGeom = new THREE.BoxGeometry(0.22, 0.12, 0.05);
     const leftHead = headlightGeom.clone();
-    leftHead.translate(-0.45, 0.5, -1.66);
+    leftHead.translate(-0.45, headY, -1.66);
     const rightHead = headlightGeom.clone();
-    rightHead.translate(0.45, 0.5, -1.66);
+    rightHead.translate(0.45, headY, -1.66);
 
     const taillightGeom = new THREE.BoxGeometry(0.3, 0.1, 0.05);
     const leftTail = taillightGeom.clone();
-    leftTail.translate(-0.45, 0.55, 1.66);
+    leftTail.translate(-0.45, tailY, 1.66);
     const rightTail = taillightGeom.clone();
-    rightTail.translate(0.45, 0.55, 1.66);
+    rightTail.translate(0.45, tailY, 1.66);
 
     const parts = [leftHead, rightHead, leftTail, rightTail];
     const lightsGeom = mergeGeometries(parts, false);
@@ -355,5 +359,18 @@ export class VehicleMesh {
       quaternion.z,
       quaternion.w,
     );
+  }
+
+  // Sync the four wheel meshes with the physics raycast vehicle. `visuals`
+  // comes from Vehicle.getWheelVisuals() (chassis-local transforms that carry
+  // the live suspension length, steering angle and rolling angle), so the
+  // wheels roll with speed, turn when steering and ride the suspension.
+  updateWheels(visuals: readonly WheelVisual[]): void {
+    for (let i = 0; i < this.wheelMeshes.length && i < visuals.length; i++) {
+      const mesh = this.wheelMeshes[i];
+      const v = visuals[i];
+      mesh.position.set(v.position.x, v.position.y, v.position.z);
+      mesh.quaternion.set(v.quaternion.x, v.quaternion.y, v.quaternion.z, v.quaternion.w);
+    }
   }
 }

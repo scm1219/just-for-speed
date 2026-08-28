@@ -126,6 +126,21 @@
         <button class="link" id="reset-view">重置视角</button>
       </label>
     </section>
+
+    <div class="divider"></div>
+
+    <section>
+      <label class="heading">轮子动画演示</label>
+      <label class="row"><input type="checkbox" id="wheel-demo" /> 启用（模拟行驶/转向）</label>
+      <label class="row">
+        <input type="range" id="wheel-speed" min="0" max="30" step="1" value="8" />
+        <span>车速 m/s</span><span class="val" id="wheel-speed-val">8</span>
+      </label>
+      <label class="row">
+        <input type="range" id="wheel-steer" min="-0.55" max="0.55" step="0.01" value="0" />
+        <span>前轮转角</span><span class="val" id="wheel-steer-val">0.00</span>
+      </label>
+    </section>
   </div>
 
   <div id="info">
@@ -182,6 +197,10 @@
 
     // ------------------------------------------------------------------- car
     const car = new VehicleMesh(0xe94560);
+    // The mesh is authored with 0 = chassis-body origin, which sits ~0.67 m
+    // above the road at suspension rest (see VehicleMesh.GROUND_TO_ORIGIN).
+    // Lift the group so the tires rest exactly on the ground plane.
+    car.group.position.y = 0.67;
     scene.add(car.group);
 
     // Named part meshes, looked up for visibility toggling.
@@ -313,13 +332,57 @@
       renderer.setSize(innerWidth, innerHeight);
     });
 
+    // ------------------------------------------------- wheel animation demo
+    // Drives VehicleMesh.updateWheels() with synthetic chassis-local wheel
+    // states — the same shape Vehicle.getWheelVisuals() produces in-game —
+    // so rolling + steering can be previewed without a physics world.
+    const WHEEL_REST_Y = -0.32;   // suspension length ~0.32 at rest
+    const WHEEL_XZ = [
+      [-0.8, -1.2], [0.8, -1.2],  // FL, FR (steered, nose = -Z)
+      [-0.8, 1.2], [0.8, 1.2],    // RL, RR
+    ];
+    const wheelStates = WHEEL_XZ.map(([x, z]) => ({
+      position: { x, y: WHEEL_REST_Y, z },
+      quaternion: new THREE.Quaternion(),
+    }));
+    const qYaw = new THREE.Quaternion();
+    const qRoll = new THREE.Quaternion();
+    const AXIS_Y = new THREE.Vector3(0, 1, 0);
+    const AXIS_ROLL = new THREE.Vector3(-1, 0, 0); // cannon axleLocal
+    let wheelPhase = 0;
+    const wheelDemo = $('wheel-demo');
+    const wheelSpeed = $('wheel-speed');
+    const wheelSteer = $('wheel-steer');
+    wheelSpeed.addEventListener('input', () => {
+      $('wheel-speed-val').textContent = wheelSpeed.value;
+    });
+    wheelSteer.addEventListener('input', () => {
+      $('wheel-steer-val').textContent = parseFloat(wheelSteer.value).toFixed(2);
+    });
+    function updateWheelDemo(dt) {
+      if (wheelDemo.checked) {
+        const speed = parseFloat(wheelSpeed.value);
+        const steer = parseFloat(wheelSteer.value);
+        wheelPhase += (speed / 0.35) * dt; // roll angle = distance / radius
+        for (let i = 0; i < 4; i++) {
+          qYaw.setFromAxisAngle(AXIS_Y, i < 2 ? steer : 0);
+          qRoll.setFromAxisAngle(AXIS_ROLL, wheelPhase);
+          wheelStates[i].quaternion.copy(qYaw).multiply(qRoll);
+        }
+      }
+      // Always apply: with the demo off this parks the wheels at their
+      // suspension-rest transforms instead of leaving them at the origin.
+      car.updateWheels(wheelStates);
+    }
+
     // --------------------------------------------------------------- loop
+    let lastT = performance.now() / 1000;
     function animate() {
       controls.update();
-      if (boxHelper && boxHelper.visible) {
-        // Keep the box in sync if transforms ever change.
-        // (Cheap to skip; left as a no-op since the car is static here.)
-      }
+      const now = performance.now() / 1000;
+      const dt = Math.min(now - lastT, 0.1);
+      lastT = now;
+      updateWheelDemo(dt);
       renderer.render(scene, camera);
       $('stat-calls').textContent = renderer.info.render.calls;
       requestAnimationFrame(animate);

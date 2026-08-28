@@ -57,6 +57,10 @@ let currentAICount: number = 5;
 let animationId: number = 0;
 let lastRaceTime: number = 0;
 
+// Consecutive seconds of "throttle held but not moving" (see renderLoop).
+let stuckTime = 0;
+const STUCK_RESET_DELAY = 1.5;
+
 // Pause overlay element
 let pauseOverlay: HTMLElement | null = null;
 
@@ -150,6 +154,7 @@ function cleanupRace(): void {
   }
 
   lastRaceTime = 0;
+  stuckTime = 0;
 }
 
 async function startRace(trackId: string, difficulty: Difficulty, aiCount: number): Promise<void> {
@@ -213,6 +218,13 @@ async function startRace(trackId: string, difficulty: Difficulty, aiCount: numbe
 
   playerVehicleMesh = new VehicleMesh(0xe94560);
   scene.threeScene.add(playerVehicleMesh.group);
+
+  // Expose race internals for browser-console debugging / automated playtests.
+  (window as unknown as Record<string, unknown>).__raceDebug = {
+    vehicle: playerVehicle,
+    trackMesh,
+    resetToTrack: (t: number) => resetPlayerToTrack(t),
+  };
 
   // Camera
   camera = new Camera(scene.threeCamera);
@@ -306,10 +318,23 @@ function renderLoop(): void {
     return;
   }
 
-  // Only update game systems during RACING phase
-  if (game.state.phase === GamePhase.RACING) {
-    // Update player vehicle from input
-    playerVehicle.updateFromInput(currentInput, dt);
+    // Only update game systems during RACING phase
+    if (game.state.phase === GamePhase.RACING) {
+      // Update player vehicle from input
+      playerVehicle.updateFromInput(currentInput, dt);
+
+      // Stuck auto-recovery: throttle held but the car barely moves (wedged
+      // nose-first into a barrier corner) — the flip reset doesn't cover this
+      // upright case. Recover to the track like a flip after a short grace.
+      if (currentInput.forward || currentInput.backward) {
+        if (Math.abs(playerVehicle.getSpeed()) < 0.5) {
+          stuckTime += dt;
+        } else {
+          stuckTime = 0;
+        }
+      } else {
+        stuckTime = 0;
+      }
 
     // Check drifting for effects and audio
     if (playerVehicle.getIsDrifting()) {
@@ -333,6 +358,12 @@ function renderLoop(): void {
     const playerPos = playerVehicle.getPosition();
     if (playerPos.y < OOB_Y_MIN || playerPos.y > OOB_Y_MAX || closestDist > OOB_MAX_DIST) {
       resetPlayerToTrack(playerProgress);
+    }
+
+    // Stuck threshold reached: snap back onto the track.
+    if (stuckTime >= STUCK_RESET_DELAY) {
+      resetPlayerToTrack(playerProgress);
+      stuckTime = 0;
     }
 
     // Flip detection and auto-reset
@@ -406,11 +437,13 @@ function renderLoop(): void {
   const pos = playerVehicle.getPosition();
   const quat = playerVehicle.getQuaternion();
   playerVehicleMesh.updateFromPhysics(pos, quat);
+  playerVehicleMesh.updateWheels(playerVehicle.getWheelVisuals());
 
   for (let i = 0; i < aiDrivers.length; i++) {
     const aiPos = aiDrivers[i].vehicle.getPosition();
     const aiQuat = aiDrivers[i].vehicle.getQuaternion();
     aiVehicleMeshes[i].updateFromPhysics(aiPos, aiQuat);
+    aiVehicleMeshes[i].updateWheels(aiDrivers[i].vehicle.getWheelVisuals());
   }
 
   // Update camera
