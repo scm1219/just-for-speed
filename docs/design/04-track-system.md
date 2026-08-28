@@ -43,7 +43,7 @@ interface TrackData {
 }
 ```
 
-> 注意：`startPosition` / `startRotation` 字段在 JSON 中存在，但**当前代码未直接使用**——起跑位置实际由 `trackMesh.getPointAt(0)`（曲线起点）推导。这是数据与实现的轻微冗余。
+> 注意：`startPosition` / `startRotation` 字段在 JSON 中存在，但**当前代码未直接使用**——起跑位置实际由 `trackMesh.getPointAt(0)`（曲线起点）推导。`totalLaps` 字段当前同样**未生效**：`LapTracker` 构造函数接收了该参数但没有使用，圈数硬编码为 3（见 [06 §2.1](./06-game-flow.md)）。这些是数据与实现的轻微冗余。
 
 ## 2. 赛道曲线
 
@@ -76,6 +76,8 @@ graph TD
 曲线提供两个核心查询方法，贯穿整个系统：
 - `getPointAt(t)` → 曲线点坐标（路面、碰撞体、checkpoint、道具箱、AI、相机都用它）
 - `getTangentAt(t)` → 切线方向（用于计算路面朝向、护栏法向、车辆起跑朝向）
+
+> **精度提示**：`TrackMesh.getPointAt` 内部调用的是 `curve.getPoint`（**参数化 t**），并非 Three.js 曲线原生的 `getPointAt`（弧长均匀化版本）。控制点分布不均匀时，`t=0.5` 不严格等于弧长中点，「t 的比例 ≈ 圈长比例」只是近似——橡皮筋死区宽度（[03 §5](./03-ai-opponents.md)）与 checkpoint 间距都建立在这个近似上。
 
 ## 3. 路面网格生成算法
 
@@ -143,7 +145,7 @@ private buildBarriers(): void {
 }
 ```
 
-- 护栏是**半径 0.3m 的管子**，沿路面边缘延伸，视觉上是红白边界。
+- 护栏是**半径 0.3m 的管子**，沿路面边缘延伸，材质为纯红色（`0xff0000` 的 `MeshLambertMaterial`）。
 - 偏移 0.5m 留出路肩空间，防止车轮贴边时穿模。
 
 ## 5. 物理碰撞体（⭐ 重点）
@@ -287,7 +289,7 @@ const TRACK_IDS = ['city', 'coast', 'desert', 'mytrack']; // ← 添加
 
 > **注意**：JSON 文件名必须等于 id。动态 import 用 `./tracks/${trackId}.json` 定位文件。
 
-**无需改其他代码**——路面、护栏、碰撞体、checkpoint 全部由数据驱动自动生成。
+**基本无需改其他代码**——路面、护栏、碰撞体、checkpoint 全部由数据驱动自动生成。唯一例外是 `totalLaps`：JSON 中的值被 `LapTracker` 忽略（硬编码 3 圈，见 [06 §2.1](./06-game-flow.md)），改圈数需改代码。
 
 ## 9. 小结
 

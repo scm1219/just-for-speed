@@ -230,20 +230,23 @@ update(currentTime, playerPos, heldItem): ItemType | null {
     }
   }
   // ③ 拾取检测（仅当未持有道具时）
+  let pickedUp: ItemType | null = null;
   if (heldItem === null) {
     for (let i = 0; i < this.itemBoxes.length; i++) {
-      if (!this.itemBoxes[i].active) continue;
+      const box = this.itemBoxes[i];
+      if (!box.active) continue;
       const dx = playerPos.x - box.mesh.position.x;
       const dz = playerPos.z - box.mesh.position.z;
       if (Math.sqrt(dx*dx + dz*dz) < 3) {           // 3m 内
-        this.itemBoxes[i].active = false;
-        this.itemBoxes[i].mesh.visible = false;
+        box.active = false;
+        box.mesh.visible = false;
         this.respawnTimers.set(i, currentTime + 5);  // 5 秒后重生
-        return rollItem();                            // 随机出道具
+        pickedUp = rollItem();                       // 随机出道具
+        break;                                       // 一帧只拾取一个
       }
     }
   }
-  return null;
+  return pickedUp;
 }
 ```
 

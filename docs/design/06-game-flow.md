@@ -44,11 +44,11 @@ sequenceDiagram
 
 **关键编排点：**
 - **倒计时期间物理冻结**：COUNTDOWN 阶段只渲染不步进物理，倒计时结束 `loop.start()` 才启动物理，保证公平起跑。
-- **PAUSED 不在时序图中**：玩家按 ESC 时 `setPhase(PAUSED)` + `loop.stop()`，`renderLoop` 检测到 PAUSED 直接 return；恢复时反向操作并重置 `lastRaceTime` 防止 dt 跳变。
+- **PAUSED 不在时序图中 ⚠️**：玩家按 ESC 时实际只执行 `setPhase(PAUSED)` + 显示遮罩 + 停引擎音，**并未调用 `loop.stop()`**——物理在暂停期间继续步进，圈速按绝对时间累计（暂停时长计入成绩）。恢复时重置 `lastRaceTime` 只防止渲染帧 dt 跳变，不影响比赛计时。详见 [01 §4](./01-architecture.md) 的已知问题说明。
 
 ## 2. 圈数与排名算法
 
-`LapTracker` 是竞速逻辑的核心，追踪所有参赛者（玩家 + 5 AI）的进度。
+`LapTracker` 是竞速逻辑的核心，追踪所有参赛者（玩家 + 若干 AI，数量由菜单选择）的进度。
 
 ### 2.1 RacerState（每名参赛者的状态）
 
@@ -57,7 +57,7 @@ interface RacerState {
   vehicle: Vehicle;
   currentCheckpoint: number;   // 下一个要触发的 checkpoint 索引
   currentLap: number;          // 当前圈
-  totalLaps: number;           // 总圈数（3）
+  totalLaps: number;           // 总圈数（当前硬编码 3，见下方注意）
   lapTimes: number[];          // 每圈用时
   lapStartTime: number;        // 本圈开始时间
   raceStartTime: number;       // 比赛开始时间
@@ -65,6 +65,8 @@ interface RacerState {
   isPlayer: boolean;
 }
 ```
+
+> **⚠️ `totalLaps` 当前是硬编码**：`LapTracker` 构造函数虽然接收 `totalLaps` 参数（`main.ts` 传入 `trackData.totalLaps`），但从未使用；`addRacer` 中写死 `totalLaps: 3`。赛道 JSON 里的圈数设置**不生效**，改圈数必须改代码（见 [04 §8](./04-track-system.md)）。
 
 ### 2.2 Checkpoint 触发（update 每帧）
 
@@ -124,7 +126,7 @@ getStandings(): RacerState[] {
   return [...this.racers].sort((a, b) => {
     if (a.finished && !b.finished) return -1;       // ① 完赛的排前
     if (!a.finished && b.finished) return 1;
-    if (a.finished && b.finished)                    // ② 都完赛：比总用时
+    if (a.finished && b.finished)                    // ② 都完赛：比末圈用时（⚠️ 非总用时）
       return lastLapTime(a) - lastLapTime(b);
     if (a.currentLap !== b.currentLap)               // ③ 圈数多的排前
       return b.currentLap - a.currentLap;
@@ -140,12 +142,14 @@ getStandings(): RacerState[] {
 | 优先级 | 比较维度 | 场景 |
 |--------|---------|------|
 | ① | 是否完赛 | 完赛的永远排未完赛之前 |
-| ② | 完赛者间比用时 | 先到终点的名次高 |
+| ② | 完赛者间比**末圈**用时 | 非总用时、也非完赛先后（见下方局限） |
 | ③ | 当前圈数 | 跑了 3 圈的 > 跑 2 圈的 |
 | ④ | 当前 checkpoint | 同圈数下，过 checkpoint 多的领先 |
 | ⑤ | 到下一 checkpoint 距离 | 同 checkpoint 下，离下一个近的领先 |
 
 这个五级排序覆盖了所有情况，能在任意时刻给出合理排名。第 ⑤ 级用 `distToNextCheckpoint`（XZ 距离）做最终区分，避免并列。
+
+> **⚠️ 第 ② 级的已知局限**：比较的是 `lapTimes` 的**最后一圈**用时——代码没有记录完赛时间戳，也没有完赛先后顺序，极端情况下总时间更慢但末圈更快的车会排在前面。若要按冲线顺序排名，应在 `finished = true` 时记录完赛时间并用它比较。
 
 ## 3. 玩家进度估算
 
@@ -236,7 +240,7 @@ function resetPlayerToTrack(nearestT: number): void {
 
 回正到**最近赛道点**（nearestT），朝向沿切线（+π 适配 -Z 约定，见 [02 §4](./02-physics.md)），并清零所有速度——避免回正后保留飞出时的惯性。
 
-> 翻车回正（5 秒自动）复用同一个 `resetPlayerToTrack`，区别仅在触发条件（见 [02 §6.3](./02-physics.md)）。
+> 翻车回正（5 秒自动）复用同一个 `resetPlayerToTrack`，区别仅在触发条件（见 [02 §6.5](./02-physics.md)）。
 
 ## 5. 结算与成绩持久化
 

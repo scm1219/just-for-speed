@@ -141,6 +141,8 @@ stateDiagram-v2
     RESULTS --> COUNTDOWN: 重赛<br/>startRace()
 ```
 
+> `GamePhase` 枚举中还存在 `TRACK_SELECT`，但当前代码从未把 phase 设为该值（菜单期间 `game` 为 null，首次 `setPhase` 即 `COUNTDOWN`）——它是一个已定义未使用的状态，故图中省略。
+
 各阶段的系统行为：
 
 | 阶段 | 物理 loop | 渲染 loop 的逻辑更新 | 说明 |
@@ -148,10 +150,15 @@ stateDiagram-v2
 | MENU | 未启动 | 仅渲染空场景 | `menuRenderLoop` 保持背景渲染 |
 | COUNTDOWN | 未启动 | 渲染但冻结输入 | 倒计时 3→2→1→GO，每秒一次 |
 | RACING | 启动 | 全系统更新 | 玩家输入、AI、圈数、道具、HUD 全开 |
-| PAUSED | **停止** | 早退（不更新逻辑） | `renderLoop` 检测到 PAUSED 直接 return，物理 loop 已 `stop()` |
-| RESULTS | 停止 | 停止 | 展示结算，等待重赛/返回 |
+| PAUSED | **仍在运行 ⚠️** | 跳过 RACING 逻辑，继续渲染 | 未调 `loop.stop()`，物理持续步进（见下方警告） |
+| RESULTS | 停止（`loop.stop()`） | 跳过逻辑，继续渲染 | ResultScreen 展示结算，场景在其下仍每帧渲染 |
 
-> **渲染与物理解耦的体现**：暂停时物理 loop 被 `stop()`，但渲染 loop 仍在跑（只是 `renderLoop` 在 PAUSED 分支提前 return）。这意味着暂停期间画面不更新，恢复时无缝衔接。
+> **⚠️ 暂停并未真正冻结模拟（以代码为准）**：`main.ts` 的暂停分支只做三件事——`setPhase(PAUSED)`、显示遮罩、停引擎音，**没有调用 `loop.stop()`**。因此暂停期间：
+> - 物理循环继续以固定步长步进，车辆在遮罩后面按最后的输入状态继续运动（若暂停瞬间正踩着油门，`pendingThrust` 会在每个物理步持续施加）；
+> - 圈速/比赛计时基于绝对时间，暂停时长会计入成绩；
+> - 渲染侧只有「切换帧」提前 return，之后的帧继续做网格同步与渲染（跳过 RACING 阶段的游戏逻辑）——暂停画面本身是活的。
+>
+> 若要实现真正的暂停，需在切换时 `loop.stop()` / `loop.start()`，并在恢复时补偿计时基准。这是已知问题，文档如实记录现状。
 
 ## 5. 生命周期管理
 
@@ -210,6 +217,8 @@ const pos = playerVehicle.getPosition();        // cannon Vec3
 const quat = playerVehicle.getQuaternion();     // cannon Quaternion
 playerVehicleMesh.updateFromPhysics(pos, quat); // 拷贝到 Three.js Object3D
 ```
+
+（除整车位姿外，每帧还会调用 `updateWheels(vehicle.getWheelVisuals())`，同步四个车轮的悬挂行程、转向角与滚动角。）
 
 这种单向数据流（物理 → 渲染，绝不反向）的好处：物理状态永远权威，渲染只是「显示」，调试时可单独暂停渲染而不影响物理。
 

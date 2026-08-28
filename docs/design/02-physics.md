@@ -115,16 +115,20 @@ const WHEEL_POSITIONS = [
 
 ### 4.1 为什么是 -Z？
 
-由 cannon-es 的内部约定与本项目参数组合导致：
+**历史起源**（旧版驱动走 cannon 的 `applyEngineForce` 时）：在 `indexForwardAxis=2`（Z 轴）+ `axleLocal=(-1,0,0)`（轮轴沿 -X）的组合下，cannon-es 的正 engineForce 实际把底盘推向局部 -Z——这个隐式行为决定了最初的朝向约定。
+
+**现状**（提交 `77adeab` 车辆重做之后）：驱动不再走 `applyEngineForce`（见 §5.2 的质心施力），-Z 约定由代码**显式写明**、不再依赖 cannon 的隐式行为：
 
 ```ts
-// 轴配置：indexForwardAxis=2 (Z), axleLocal=(-1,0,0) (轮轴沿 -X)
-// 在这种组合下：正的 engineForce 实际推动底盘沿局部 -Z 方向。
+// Vehicle.ts —— 前向常量是 -Z 约定的现锚点
+const FORWARD = new CANNON.Vec3(0, 0, -1);
+
+// applyDriveThrust()：推力沿车头方向（局部 -Z 旋到世界坐标）、施加于质心
+this.chassisBody.quaternion.vmult(FORWARD, this.tmpVecA);
+this.chassisBody.applyForce(...);
 ```
 
-源码注释明确记录了这个非平凡事实：
-
-> *"a POSITIVE engineForce is the only value that effectively drives the wheels... and it pushes the chassis toward local -Z. The whole project therefore treats -Z as forward."* —— `Vehicle.ts`
+轮距布局同样遵守该约定：**转向轮（index 0/1）必须坐在 -Z 端（车头）**——`setSteeringValue` 只打在前两个轮上，若转向轮在车尾则车无法转向（源码注释记录了早期这个 bug）。
 
 ### 4.2 -Z 约定的全链路一致性
 
@@ -329,9 +333,8 @@ flowchart TD
     F -- 是 --> G["resetPlayerToTrack<br/>回到最近赛道点<br/>清零速度"]
 ```
 
-- 仅影响**玩家**车辆，AI 不涉及（AI 沿曲线推进不会翻）。
-- 玩家可按 R 键（`resetVehicle`）立即回正，不必等满 5 秒。
-- AI 同样复用 `checkFlipState`（`AIDriver`，2 秒即回正——AI 没有操作技巧，快快恢复保持比赛流畅）。
+- **玩家与 AI 都适用**：玩家可按 R 键（`resetVehicle`）立即回正，不必等满 5 秒。
+- AI 复用同一套 `checkFlipState`，但只等 2 秒（`AI_FLIP_RESET_DELAY`，`AIDriver.ts`）——AI 没有操作技巧，快速恢复以保持比赛流畅。AI 回正调用的是 `setPosition(waypointProgress)`（传送回自己的理想进度点，见 [03 §1](./03-ai-opponents.md)），而非玩家的 `resetPlayerToTrack`。
 
 ### 6.6 护栏接触材质（刮蹭不绊翻）
 
