@@ -72,11 +72,11 @@ this.raycastVehicle = new CANNON.RaycastVehicle({
 | 参数 | 值 | 含义 | 调参影响 |
 |------|-----|------|---------|
 | `mass` | `1200` | 底盘质量 (kg) | 越大越「重」，惯性大但引擎力也按比例放大 |
-| `maxSpeed` | `200/3.6 ≈ 55.56` | 最高速 (m/s，即 200 km/h) | 软上限，达到后不再加速 |
-| `acceleration` | `25` | 加速度基值 | 引擎力 = `acceleration × mass × 0.5` |
-| `brakeForce` | `40` | 制动力基值 | 手刹时施加到轮子 |
+| `maxSpeed` | `200/3.6 ≈ 55.56` | 最高速 (m/s，即 200 km/h) | 软上限，最后 25% 动力线性衰减 |
+| `acceleration` | `25` | 加速度基值 | 推力 = `acceleration × mass × 0.4`（≈1g） |
+| `brakeForce` | `40` | 手刹制动力基值 | Space 手刹时施加到轮子 |
 | `steerSpeed` | `2.5` | 转向插值速率 | 越大转向越灵敏 |
-| `driftFactor` | `0.3` | 漂移因子（当前仅记录状态，未改摩擦） | 预留 |
+| `driftFactor` | `0.3` | 手刹时后轮抓地比率 | 后轮 frictionSlip × 0.3 → 甩尾 |
 | `boostMultiplier` | `1.5` | 加速道具时的最高速/引擎力倍率 | 3 秒加速期间生效 |
 
 ### 3.2 轮子/悬挂参数（`WHEEL_OPTIONS`）
@@ -87,27 +87,27 @@ this.raycastVehicle = new CANNON.RaycastVehicle({
 |------|-----|------|
 | `radius` | `0.35` | 轮子半径 (m) |
 | `suspensionStiffness` | `30` | 悬挂弹簧刚度。越大越硬，车身越不晃但易颠 |
-| `suspensionRestLength` | `0.4` | 悬挂静息长度 (m) |
-| `frictionSlip` | `2.5` | 轮胎摩擦。越大越抓地、越难漂移 |
+| `suspensionRestLength` | `0.4` | 悬挂静息长度 (m)。静止压缩量 ≈ g/(4×刚度) ≈ 0.08 m |
+| `frictionSlip` | `2.5` | 轮胎摩擦（摩擦圆上限）。越大越抓地、越难漂移 |
 | `dampingRelaxation` | `2.3` | 悬挂回弹阻尼（拉伸时） |
 | `dampingCompression` | `4.4` | 悬挂压缩阻尼（压缩时，通常大于 relaxation） |
 | `maxSuspensionForce` | `100000` | 单轮悬挂力上限，防极端值 |
 | `rollInfluence` | `0.01` | 摩擦力对侧倾的贡献。越小越不易翻车 |
 | `maxSuspensionTravel` | `0.5` | 悬挂最大行程 (m) |
 
-### 3.3 四轮布局
+### 3.3 四轮布局与底盘碰撞盒
 
 ```ts
 const WHEEL_POSITIONS = [
-  new CANNON.Vec3(-0.8, 0, 1.2),   // FL 前左
-  new CANNON.Vec3(0.8, 0, 1.2),    // FR 前右
-  new CANNON.Vec3(-0.8, 0, -1.2),  // RL 后左
-  new CANNON.Vec3(0.8, 0, -1.2),   // RR 后右
+  new CANNON.Vec3(-0.8, 0, -1.2),  // FL 前左（前轴 = 车头 -Z，转向轮）
+  new CANNON.Vec3(0.8, 0, -1.2),   // FR 前右
+  new CANNON.Vec3(-0.8, 0, 1.2),   // RL 后左（后轴 = 车尾 +Z，驱动轮）
+  new CANNON.Vec3(0.8, 0, 1.2),    // RR 后右
 ];
 ```
 
-- 底盘形状：`Box(0.5, 0.25, 1)` —— 宽 1m、高 0.5m、长 2m（半值）。
-- 前轮（index 0,1）负责**转向**；后轮（index 2,3）负责**驱动**（后驱）。
+- 底盘形状：`Box(0.68, 0.4, 1.55)` —— 宽 1.36 m、高 0.8 m、长 3.1 m（半值），**对齐视觉车身（1.5 × 3.4 m）**，撞墙时碰撞的就是你看到的车身。加长的箱体同时把俯仰/偏航惯量提升到 ~1000 kg·m²，是抑制翘头的第一道防线。
+- 前轮（index 0, 1）负责**转向**；后轮（index 2, 3）负责**驱动**（后驱）。
 
 ## 4. 坐标与朝向约定（⭐ 核心难点）
 
@@ -170,73 +170,79 @@ playerVehicle.chassisBody.quaternion.setFromEuler(0, startAngle, 0);
 
 `updateFromInput()` 每帧把 `InputState` 转成 cannon-es 的车辆控制量。
 
-### 5.1 转向（平滑插值）
+### 5.1 转向（平滑插值 + 速度感应）
 
-转向不是瞬时跳变，而是向目标值**线性插值**，模拟方向盘手感：
+转向输入先向目标值**线性插值**（模拟方向盘手感），再按当前速度映射成实际前轮转角：
 
 ```ts
 const steerRate = this.config.steerSpeed * steerMultiplier; // 手刹时 ×1.4
-if (targetSteer > this.currentSteer) {
-  this.currentSteer = Math.min(this.currentSteer + steerRate * dt, targetSteer);
-} else if (targetSteer < this.currentSteer) {
-  this.currentSteer = Math.max(this.currentSteer - steerRate * dt, targetSteer);
-}
-// 只施加到前轮（index 0=FL, 1=FR）。后轮（2,3）固定，仅承载驱动力/制动力。
-// （注意 ×0.5，因为 RaycastVehicle 的 steerValue 是角度，需缩放）
-this.raycastVehicle.setSteeringValue(this.currentSteer * 0.5, 0); // FL
-this.raycastVehicle.setSteeringValue(this.currentSteer * 0.5, 1); // FR
+// ... currentSteer 向 targetSteer（[-1,1]）插值 ...
+
+// 速度感应：静止满舵 0.55 rad，最高速收窄到 0.16 rad
+const speedNorm = Math.min(Math.abs(speed) / this.currentMaxSpeed, 1);
+const maxSteer = MAX_STEER_LOW + (MAX_STEER_HIGH - MAX_STEER_LOW) * speedNorm;
+this.raycastVehicle.setSteeringValue(-this.currentSteer * maxSteer, 0); // FL
+this.raycastVehicle.setSteeringValue(-this.currentSteer * maxSteer, 1); // FR
 ```
 
-- **前轮转向**：仅前两轮偏转，后轮固定。这是常规汽车的转向方式，转向时后轮不主动改变朝向，车身围绕后轴附近旋转，过弯时车头先转、车尾跟随，手感更稳定、更易预判。
-- **手刹时 ×1.4 转向倍率**：漂移时需要更快的方向变化，配合后轮锁死实现甩尾感。
+- **速度感应转向**是街机手感的基石：同样的按键行程，低速是掉头满舵，高速只是轻拨方向——消除高速一把方向就甩出去的「神经质」。
+- **前轮转向**：仅前两轮偏转，后轮固定。过弯时车头先转、车尾跟随，手感稳定易预判。
+- **手刹时 ×1.4 转向倍率**：漂移中需要更快的方向变化。
 - 优先用**模拟量** `input.steerX`（手柄摇杆），键盘数字量（-1/0/+1）作回退。
+- 符号取负的原因见源码注释（`axleLocal=(-1,0,0)` + 前轴在 -Z 端的坐标系组合）。
 
-### 5.2 驱动力（后驱）
+### 5.2 驱动（质心施力，杜绝翘头）
+
+驱动推力**不再**走 cannon 的 `applyEngineForce`（其冲量施加在轮胎接地点，低于质心 ~0.67 m，满油门会产生 ~8000 N·m 的翘头力矩——实测 0.3 秒前轮离地、0.6 秒后空翻，且悬挂离地余量仅 ~0.08 m，前轮一旦悬空便无可挽回）。改为在**质心**沿车头方向直接施力：
 
 ```ts
+const DRIVE_COEFF = 0.4;   // 推力 = 25 × 1200 × 0.4 ≈ 12 kN ≈ 1g
 let engineForce = 0;
-if (input.forward && speed < effectiveMaxSpeed) {
-  engineForce = this.config.acceleration * this.config.mass * 0.5;
-  if (isBoosted) engineForce *= this.config.boostMultiplier;
+if (input.forward) {
+  if (speed < -BRAKE_TO_REVERSE_SPEED) serviceBrake = SERVICE_BRAKE; // 倒滑中 W=刹车
+  else if (speed < effectiveMaxSpeed) {
+    // 最后 25% 最高速区间动力线性衰减，避免硬切造成的顿挫
+    const taper = Math.min((1 - speedRatio) / 0.25, 1);
+    engineForce = this.config.acceleration * this.config.mass * DRIVE_COEFF * taper;
+    if (isBoosted) engineForce *= this.config.boostMultiplier;
+  }
 }
-const maxReverseSpeed = effectiveMaxSpeed * 0.3;  // 倒车只有 30% 最高速
-if (input.backward && speed > -maxReverseSpeed) {
-  engineForce = -this.config.acceleration * this.config.mass * 0.15; // 倒车力小
-}
-// 只施加到后轮（index 2, 3）
-this.raycastVehicle.applyEngineForce(engineForce, 2);
-this.raycastVehicle.applyEngineForce(engineForce, 3);
+this.pendingThrust = engineForce; // world 'preStep' 每物理步施加（帧率无关）
 ```
 
-要点：
-- **速度上限是软约束**：达到 maxSpeed 后 `engineForce = 0`，靠摩擦自然减速。
-- 倒车力是前进力的 0.3 倍（0.15 vs 0.5 系数），且最高速也受限。
-- 加速期间 `engineForce` 和 `maxSpeed` 同步 ×1.5。
+- **质心施力零俯仰力矩**：起步再猛也不会翘头/后翻，boost 全开同理。
+- **接地缩放**：按 `numWheelsOnGround / 4` 缩放，落地过程牵引力渐进恢复；悬空无推力。
+- **preStep 施加**：`world.step` 每步清空 `body.force`，若在渲染帧施力，低帧率下推力会按比例缩水。监听 world `preStep` 事件保证每个固定步都吃到满推力。
+- 倒车力系数 0.12，最高速受限 30%。
+- 轮子的滚动动画不依赖引擎力：cannon 按实际地面速度累计 `deltaRotation`。
 
-### 5.3 制动（差分制动）
-
-手刹（Space）触发制动，但**前后轮制动力不同**：
+### 5.3 制动（S/↓ 刹车优先，Space 手刹甩尾）
 
 ```ts
-let brakeForce = 0;
-if (input.handbrake) brakeForce = this.config.brakeForce;
-this.raycastVehicle.setBrake(brakeForce * 0.6, 0); // FL 60%
-this.raycastVehicle.setBrake(brakeForce * 0.6, 1); // FR 60%
-this.raycastVehicle.setBrake(brakeForce, 2);        // RL 100%
-this.raycastVehicle.setBrake(brakeForce, 3);        // RR 100%
+// S/↓ 在前进中 = 服务刹车（前 100% / 后 70%，前刹偏重保直线稳定）
+// 速度降到 0.5 m/s 以下才切换为倒车推力 —— 街机标准的「先刹后倒」
+serviceBrake = SERVICE_BRAKE; // 90 N·s/轮
+
+// Space = 手刹（前 60% / 后 100%，后轮先锁 → 甩尾）
+handbrakeBrake = this.config.brakeForce; // 40
+this.raycastVehicle.setBrake(Math.max(serviceBrake, handbrakeBrake * 0.6), 0); // FL
+this.raycastVehicle.setBrake(Math.max(serviceBrake, handbrakeBrake * 0.6), 1); // FR
+this.raycastVehicle.setBrake(Math.max(serviceBrake * 0.7, handbrakeBrake), 2); // RL
+this.raycastVehicle.setBrake(Math.max(serviceBrake * 0.7, handbrakeBrake), 3); // RR
 ```
 
-**后轮制动力更大**（100% vs 60%）→ 后轮先锁死 → 车尾失去抓地 → 形成**漂移/甩尾**。这是街机手感的来源。
+### 5.4 漂移（手刹收后轮摩擦圆 + 真实侧滑检测）
 
-### 5.4 漂移检测（状态标记，不改物理）
+**物理**：手刹按下时把后轮 `frictionSlip` 从 2.5 砍到 `2.5 × driftFactor(0.3) = 0.75`。cannon 的摩擦圆 `maximp = suspensionForce × dt × frictionSlip` 随之收缩，后轮承受不了过弯侧向载荷 → 车尾甩出。松开即恢复满抓地。`driftFactor` 终于有了用武之地。
+
+**检测**（驱动烟雾/音效，不改物理）：
 
 ```ts
-if (input.handbrake && Math.abs(speed) > 5) {
-  this.isDrifting = true;
-}
+const slipAngle = Math.atan2(|横向速度|, |纵向速度|);  // 车体坐标系分解
+isDrifting = (手刹 && |speed| > 5) || (|speed| > 8 && slipAngle > 0.35 rad);
 ```
 
-阈值 `|speed| > 5 m/s`（18 km/h）：低速下不判定漂移，避免起步抖动误触发。注意这**只设置状态标志**（用于触发烟雾粒子和漂移音效），漂移的物理表现完全由 §5.3 的后轮锁死实现。
+基于**真实侧滑角**而非「手刹是否按下」——高速急转突破后轮抓地的甩尾同样触发漂移特效；实测 105 km/h、47° 侧滑时正确置位，抓地拉直后自动复位。
 
 ## 6. 特殊状态机制
 
@@ -265,7 +271,24 @@ applySpeedReduction(factor: number, duration: number): void {
 
 被炸弹道具命中时 `factor=0.5`，持续 2 秒。用 `setTimeout` 而非时间戳——因为减速要恢复 `maxSpeed`，需要一个明确的「到期动作」。注意 `destroy()` 会 `clearTimeout` 防止已销毁车辆触发回调。
 
-### 6.3 翻车检测与自动回正（⭐）
+### 6.3 空气动力学与空中控制
+
+```ts
+// 接地时：下压力 ∝ v²（部分接地按比例缩放），沿车体 -Y 方向
+const down = DOWNFORCE_COEFF * v * v * (groundedWheels / 4);   // 3.0 × v²
+// 车身倾斜 > 60° 时跳过——翻滚中的「车轴下压力」会变成侧推、火上浇油
+
+// 悬空时：绕车体 up 轴的小偏航力矩（1500 N·m），让玩家在空中摆正车头落地
+applyTorque(upWorld * (-currentSteer * AIR_YAW_TORQUE));
+```
+
+下压力把高速抓地「焊」回路面，同时压住抬头趋势——这是角阻尼能从 0.8（旧版压制弹跳/翘头的 hack，副作用是车身姿态僵硬）降到 0.6 的前提。
+
+### 6.4 卡死自动脱困
+
+顶墙场景（车头垂直抵住护栏夹角）里推力与墙面法向力精确平衡，车会原地不动——翻车回正覆盖不了这种「直立卡死」。检测：**油门踩着但 `|speed| < 0.5 m/s` 持续 1.5 秒** → 玩家调用 `resetPlayerToTrack`（回最近赛道点），AI 调用 `setPosition(waypointProgress)`。油门松开或恢复移动即重新计时。
+
+### 6.5 翻车检测与自动回正（⭐）
 
 这是提交 `d27bdca 添加车辆翻车后回正功能` 的核心。
 
@@ -308,6 +331,11 @@ flowchart TD
 
 - 仅影响**玩家**车辆，AI 不涉及（AI 沿曲线推进不会翻）。
 - 玩家可按 R 键（`resetVehicle`）立即回正，不必等满 5 秒。
+- AI 同样复用 `checkFlipState`（`AIDriver`，2 秒即回正——AI 没有操作技巧，快快恢复保持比赛流畅）。
+
+### 6.6 护栏接触材质（刮蹭不绊翻）
+
+护栏与车体使用专用 `ContactMaterial`（摩擦 0.05、弹性 0.1，定义在 `PhysicsWorld.ts`）。默认摩擦 0.3 时，撞击瞬间护栏会「咬住」车身侧面引发滚转——即使用了低 `rollInfluence`，碰撞求解器的接触冲量照样能把车掀翻。低摩擦对让撞击变成顺滑的刮蹭滑行。
 
 ## 7. 小结
 
@@ -315,9 +343,17 @@ flowchart TD
 |------|---------|
 | 车辆模型 | RaycastVehicle，射线探测地面，稳定可调 |
 | 前向约定 | 局部 **-Z**，全链路（物理/网格/相机/AI）一致 |
-| 漂移 | 后轮差分制动（100% vs 60%）锁死后轮 |
+| 底盘碰撞盒 | 1.36×0.8×3.1 m，对齐视觉车身；惯量提升抑制翘头 |
+| 转向 | 速度感应满舵（0.55→0.16 rad），仅前轮 |
+| 驱动 | 质心施力（`preStep` 每步施加），零翘头力矩；末端动力线性衰减 |
+| 制动 | S/↓ = 服务刹车（前刹偏重），降到 0.5 m/s 以下才倒车 |
+| 漂移 | 手刹把后轮 frictionSlip ×0.3 甩尾；侧滑角 >20° 触发特效 |
+| 空气 | 下压力 ∝ v²（接地时），空中偏航力矩辅助摆正 |
+| 护栏 | 专用低摩擦接触材质，刮蹭滑行不绊翻 |
+| 卡死 | 油门踩着 1.5 秒不动 → 自动回赛道（玩家/AI 同套逻辑） |
+| 轮子动画 | 每轮独立网格，`getWheelVisuals` 输出悬挂行程+转向+滚动 |
 | 加速 | 结束时间戳，无需每帧递减 |
 | 减速 | setTimeout 定时恢复，destroy 时清理 |
-| 翻车 | 上方向量点积 < -0.5，5 秒自动回正 |
+| 翻车 | 上方向量点积 < -0.5，玩家 5 秒 / AI 2 秒自动回正 |
 
 赛道碰撞体（路面与护栏的物理体）见 [04 赛道系统 §5](./04-track-system.md)。AI 如何驱动车辆见 [03 AI 对手](./03-ai-opponents.md)。
